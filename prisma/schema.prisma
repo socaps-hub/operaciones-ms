@@ -1,0 +1,982 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ResFaseI {
+  C
+  I
+  NA
+}
+
+enum ResFaseII {
+  S
+  NS
+  C
+  NA
+}
+
+enum ResFaseIII {
+  C
+  I
+  NA
+  P
+}
+
+enum Calificativo {
+  CORRECTO
+  ACEPTABLE
+  DEFICIENTE
+  PENDIENTE
+}
+
+enum CalificativoB {
+  ACEPTABLE
+  COMPLETO
+  GRAVE
+  PENDIENTE
+}
+
+enum AResultado {
+  NO_SOLVENTADO
+  SOLVENTADO
+}
+
+enum Resolucion {
+  DEVUELTA
+  PASA_COMITE
+}
+
+enum GrupoTipo {
+  SISCONCRE
+  SISCONCAP
+  ACREDITO
+}
+
+enum Figura {
+  MENOR
+  SOCIO
+}
+
+enum Movimiento {
+  ACTUALIZACION
+  ALTA
+  APERTURA
+  BAJA
+}
+
+// RADIOGRAFIAS
+enum CargaEstado {
+  CARGADO
+  PROCESADO
+  ANULADO
+}
+
+enum RADIO_AREA {
+  CREDITO
+}
+
+model R17Cooperativas {
+  R17Id        String   @id @default(uuid()) @db.Uuid
+  R17Nom       String
+  R17Activ     Boolean  @default(true)
+  R17Logo      String
+  R17Creada_en DateTime @default(now())
+
+  sucursales       R11Sucursal[]
+  usuarios         R12Usuario[]
+  prestamos        R01Prestamo[]
+  grupos           R02Grupo[]
+  productos        R13Producto[]
+  categorias       R14Categoria[]
+  limitePrudencial R18LimitePrudencial[]
+
+  movimientos R19Movimientos[]
+
+  A01MuestraSeleccionCredito A01MuestraSeleccionCredito[]
+
+  migraciones  M01ControlMigracion[]
+  modulos      C02CooperativaModulo[]
+  cargasRadios C01ControlCarga[]
+}
+
+model R01Prestamo {
+  R01Id             String   @id @default(uuid()) @db.Uuid
+  R01NUM            String   @db.Char(8)
+  R01Suc_id         String   @db.Uuid
+  R01Nso            String   @db.Char(6)
+  R01Nom            String
+  R01Cat_id         String   @db.Uuid
+  R01Pro_id         String   @db.Uuid
+  R01Imp            Float
+  R01Dir            String   @db.Char(2)
+  R01SP_id          String   @db.Uuid
+  R01Ejvo_id        String   @db.Uuid
+  R01Fsol           String
+  R01FRec           String
+  R01FRev           String
+  R01FMov           String
+  R01ObsA           String?
+  R01ObsM           String?
+  R01ObsB           String?
+  R01ObsT           String?
+  R01Notas          String?
+  R01Est            String
+  R01Activ          Boolean
+  R01Coop_id        String   @db.Uuid
+  R01Creado_en      DateTime @default(now())
+  R01Actualizado_en DateTime @updatedAt
+
+  sucursal    R11Sucursal     @relation(fields: [R01Suc_id], references: [R11Id])
+  supervisor  R12Usuario      @relation("Supervisor", fields: [R01SP_id], references: [R12Id])
+  ejecutivo   R12Usuario      @relation("Ejecutivo", fields: [R01Ejvo_id], references: [R12Id])
+  producto    R13Producto     @relation(fields: [R01Pro_id], references: [R13Id])
+  categoria   R14Categoria    @relation(fields: [R01Cat_id], references: [R14Id])
+  cooperativa R17Cooperativas @relation(fields: [R01Coop_id], references: [R17Id], onDelete: Cascade)
+
+  evaluacionesF1 R05EvaluacionFase1[]
+  evaluacionesF2 R07EvaluacionFase2[]
+  evaluacionesF3 R09EvaluacionFase3[]
+  evaluacionesF4 R15EvaluacionFase4[]
+
+  resumenF1 R06EvaluacionResumenFase1?
+  resumenF2 R08EvaluacionResumenFase2?
+  resumenF3 R10EvaluacionResumenFase3?
+  resumenF4 R16EvaluacionResumenFase4?
+
+  @@unique([R01NUM, R01Coop_id])
+  @@index([R01Coop_id])
+  @@index([R01Suc_id])
+}
+
+model R02Grupo {
+  R02Id             String    @id @default(uuid()) @db.Uuid
+  R02Nom            String
+  R02Coop_id        String    @db.Uuid
+  R02Tipo           GrupoTipo @default(SISCONCRE)
+  R02Creado_en      DateTime  @default(now())
+  R02Actualizado_en DateTime  @updatedAt
+
+  cooperativa R17Cooperativas @relation(fields: [R02Coop_id], references: [R17Id], onDelete: Cascade)
+  rubros      R03Rubro[]
+}
+
+model R03Rubro {
+  R03Id             String   @id @default(uuid()) @db.Uuid
+  R03G_id           String   @db.Uuid
+  R03Nom            String
+  R03Actualizado_en DateTime @updatedAt
+  R03Creado_en      DateTime @default(now())
+
+  grupo     R02Grupo      @relation(fields: [R03G_id], references: [R02Id], onDelete: Cascade)
+  elementos R04Elemento[]
+}
+
+model R04Elemento {
+  R04Id             String   @id @default(uuid()) @db.Uuid
+  R04R_id           String   @db.Uuid
+  R04Nom            String
+  R04Imp            String
+  R04Pond           Int      @default(0)
+  R04Codigo         String?
+  R04Actualizado_en DateTime @updatedAt
+  R04Creado_en      DateTime @default(now())
+
+  rubro          R03Rubro             @relation(fields: [R04R_id], references: [R03Id], onDelete: Cascade)
+  evaluacionesF1 R05EvaluacionFase1[]
+  evaluacionesF2 R07EvaluacionFase2[]
+  evaluacionesF3 R09EvaluacionFase3[]
+  evaluacionesF4 R15EvaluacionFase4[]
+
+  aCreditoEvaluacionesF1 A03EvaluacionFase1AuditoriaC[]
+  aCreditoEvaluacionesF2 A05EvaluacionFase2AuditoriaC[]
+}
+
+model R05EvaluacionFase1 {
+  R05Id     String   @id @default(uuid()) @db.Uuid
+  R05P_id   String   @db.Uuid
+  R05E_id   String   @db.Uuid
+  R05Res    ResFaseI @default(NA)
+  R05Ev_por String   @db.Uuid
+  R05Ev_en  String
+
+  prestamo  R01Prestamo @relation(fields: [R05P_id], references: [R01Id], onDelete: Cascade)
+  elemento  R04Elemento @relation(fields: [R05E_id], references: [R04Id], onDelete: Cascade)
+  evaluador R12Usuario  @relation(fields: [R05Ev_por], references: [R12Id])
+
+  @@unique([R05P_id, R05E_id])
+  @@index([R05P_id])
+}
+
+model R06EvaluacionResumenFase1 {
+  R06Id     String       @id @default(uuid()) @db.Uuid
+  R06P_id   String       @db.Uuid
+  R06Ha     Int
+  R06Hm     Int
+  R06Hb     Int
+  R06Rc     Int
+  R06Cal    Calificativo
+  R06Res    Resolucion
+  R06Ev_por String       @db.Uuid
+
+  prestamo  R01Prestamo @relation(fields: [R06P_id], references: [R01Id], onDelete: Cascade)
+  evaluador R12Usuario  @relation(fields: [R06Ev_por], references: [R12Id])
+
+  @@unique([R06P_id])
+  @@index([R06Ev_por])
+}
+
+model R07EvaluacionFase2 {
+  R07Id     String    @id @default(uuid()) @db.Uuid
+  R07P_id   String    @db.Uuid
+  R07E_id   String    @db.Uuid
+  R07Res    ResFaseII
+  R07Ev_por String    @db.Uuid
+  R07Ev_en  String
+
+  prestamo  R01Prestamo @relation(fields: [R07P_id], references: [R01Id], onDelete: Cascade)
+  evaluador R12Usuario  @relation(fields: [R07Ev_por], references: [R12Id])
+  elemento  R04Elemento @relation(fields: [R07E_id], references: [R04Id], onDelete: Cascade)
+
+  @@unique([R07P_id, R07E_id])
+  @@index([R07P_id])
+}
+
+model R08EvaluacionResumenFase2 {
+  R08Id     String       @id @default(uuid()) @db.Uuid
+  R08P_id   String       @db.Uuid
+  R08SolvT  Int
+  R08SolvA  Int
+  R08SolvM  Int
+  R08SolvB  Int
+  R08Rc     Int
+  R08Cal    Calificativo
+  R08Res    Resolucion
+  R08Obs    String
+  R08FSeg   String
+  R08Ev_por String       @db.Uuid
+
+  prestamo  R01Prestamo @relation(fields: [R08P_id], references: [R01Id], onDelete: Cascade)
+  evaluador R12Usuario  @relation(fields: [R08Ev_por], references: [R12Id])
+
+  @@unique([R08P_id])
+  @@index([R08Ev_por])
+}
+
+model R09EvaluacionFase3 {
+  R09Id    String     @id @default(uuid()) @db.Uuid
+  R09P_id  String     @db.Uuid
+  R09E_id  String     @db.Uuid
+  R09Res   ResFaseIII
+  R09Ev_en String
+
+  prestamo R01Prestamo @relation(fields: [R09P_id], references: [R01Id], onDelete: Cascade)
+  elemento R04Elemento @relation(fields: [R09E_id], references: [R04Id], onDelete: Cascade)
+
+  R12Usuario R12Usuario[]
+
+  @@unique([R09P_id, R09E_id])
+  @@index([R09P_id])
+}
+
+model R10EvaluacionResumenFase3 {
+  R10Id         String       @id @default(uuid()) @db.Uuid
+  R10P_id       String       @db.Uuid
+  R10Ha         Int
+  R10Pendientes Int
+  R10Rc         Int
+  R10Cal        Calificativo
+  R10Obs        String
+  R10FDes       String
+  R10Ev_por     String       @db.Uuid
+  R10Sup        String       @db.Uuid
+
+  prestamo   R01Prestamo @relation(fields: [R10P_id], references: [R01Id], onDelete: Cascade)
+  evaluador  R12Usuario  @relation(fields: [R10Ev_por], references: [R12Id])
+  supervisor R12Usuario  @relation("SupervisorFase3", fields: [R10Sup], references: [R12Id])
+
+  @@unique([R10P_id])
+  @@index([R10Ev_por])
+}
+
+model R11Sucursal {
+  R11Id             String   @id @default(uuid()) @db.Uuid
+  R11NumSuc         String
+  R11Nom            String
+  R11Coop_id        String   @db.Uuid
+  R11Actualizado_en DateTime @updatedAt
+  R11Creada_en      DateTime @default(now())
+
+  prestamos   R01Prestamo[]
+  cooperativa R17Cooperativas @relation(fields: [R11Coop_id], references: [R17Id], onDelete: Cascade)
+  usuarios    R12Usuario[]
+
+  movimientos                R19Movimientos[]
+  A02MuestraCreditoSeleccion A02MuestraCreditoSeleccion[]
+}
+
+model R12Usuario {
+  R12Id             String   @id @default(uuid()) @db.Uuid
+  R12Ni             String   @unique
+  R12Nom            String
+  R12Suc_id         String   @db.Uuid
+  R12Rol            String
+  R12Activ          Boolean  @default(true)
+  R12Creado_en      DateTime @default(now())
+  R12Coop_id        String   @db.Uuid
+  R12Password       String
+  R12Actualizado_en DateTime @updatedAt
+
+  cooperativa R17Cooperativas @relation(fields: [R12Coop_id], references: [R17Id], onDelete: Cascade)
+  sucursal    R11Sucursal     @relation(fields: [R12Suc_id], references: [R11Id])
+
+  Prestamo_Ejvo   R01Prestamo[]        @relation("Ejecutivo")
+  Prestamo_Super  R01Prestamo[]        @relation("Supervisor")
+  EvaluacionFase1 R05EvaluacionFase1[]
+  EvaluacionFase2 R07EvaluacionFase2[]
+  EvaluacionFase3 R09EvaluacionFase3[]
+  EvaluacionFase4 R15EvaluacionFase4[]
+
+  R16EvaluacionResumenFase4 R16EvaluacionResumenFase4[]
+
+  R06EvaluacionResumenFase1 R06EvaluacionResumenFase1[]
+
+  R08EvaluacionResumenFase2 R08EvaluacionResumenFase2[]
+
+  evaluacionesFase3Evaluador  R10EvaluacionResumenFase3[]
+  evaluacionesFase3Supervisor R10EvaluacionResumenFase3[] @relation("SupervisorFase3")
+
+  evaluacionResumenFase1Supervisor R21EvaluacionResumenFase1[] @relation("Supervisor")
+
+  evaluacionResumenFase1Ejecutivo R21EvaluacionResumenFase1[] @relation("Ejecutivo")
+
+  evaluacionResumenFase2Supervisor R23EvaluacionResumenFase2[] @relation("Supervisor")
+
+  evaluacionResumenFase3Supervisor R25EvaluacionResumenFase3[] @relation("Supervisor")
+
+  A01MuestraSeleccionCredito A01MuestraSeleccionCredito[]
+
+  auditorResumenF1     A04EvaluacionResumenFase1[] @relation("Auditor")
+  responsableResumenF1 A04EvaluacionResumenFase1[] @relation("Responsable")
+
+  auditorResumenF2 A06EvaluacionResumenFase2[] @relation("Auditor")
+}
+
+model R13Producto {
+  R13Id             String   @id @default(uuid()) @db.Uuid
+  R13Nom            String
+  R13Cat_id         String   @db.Uuid
+  R13Activ          Boolean
+  R13Coop_id        String   @db.Uuid
+  R13Actualizado_en DateTime @updatedAt
+  R13Creado_en      DateTime @default(now())
+
+  prestamos   R01Prestamo[]
+  categoria   R14Categoria    @relation(fields: [R13Cat_id], references: [R14Id])
+  cooperativa R17Cooperativas @relation(fields: [R13Coop_id], references: [R17Id], onDelete: Cascade)
+}
+
+model R14Categoria {
+  R14Id             String   @id @default(uuid()) @db.Uuid
+  R14Nom            String
+  R14Activ          Boolean
+  R14Coop_id        String   @db.Uuid
+  R14Actualizado_en DateTime @updatedAt
+  R14Creada_en      DateTime @default(now())
+
+  cooperativa R17Cooperativas @relation(fields: [R14Coop_id], references: [R17Id], onDelete: Cascade)
+  prestamos   R01Prestamo[]
+  productos   R13Producto[]
+}
+
+model R15EvaluacionFase4 {
+  R15Id   String    @id @default(uuid()) @db.Uuid
+  R15P_id String    @db.Uuid
+  R15E_id String    @db.Uuid
+  R15Res  ResFaseII
+
+  prestamo R01Prestamo @relation(fields: [R15P_id], references: [R01Id], onDelete: Cascade)
+  elemento R04Elemento @relation(fields: [R15E_id], references: [R04Id], onDelete: Cascade)
+
+  R12Usuario R12Usuario[]
+
+  @@unique([R15P_id, R15E_id])
+  @@index([R15P_id])
+}
+
+model R16EvaluacionResumenFase4 {
+  R16Id     String       @id @default(uuid()) @db.Uuid
+  R16P_id   String       @db.Uuid
+  R16SolvT  Int
+  R16SolvA  Int
+  R16SolvM  Int
+  R16SolvB  Int
+  R16SegCal Calificativo
+  R16HaSolv Int
+  R16PenCu  Int
+  R16RcF    Int
+  R16DesCal Calificativo
+  R16CalF   Calificativo
+  R16Obs    String
+  R16FGlo   String
+  R16Ev_por String       @db.Uuid
+
+  prestamo  R01Prestamo @relation(fields: [R16P_id], references: [R01Id], onDelete: Cascade)
+  evaluador R12Usuario  @relation(fields: [R16Ev_por], references: [R12Id])
+
+  @@unique([R16P_id])
+  @@index([R16Ev_por])
+}
+
+model R18LimitePrudencial {
+  R18Id             String          @id @default(uuid()) @db.Uuid
+  R18Importe        Int
+  R18Coop_id        String          @db.Uuid
+  R18Creado_en      DateTime        @default(now())
+  R18Actualizado_en DateTime        @updatedAt
+  cooperativa       R17Cooperativas @relation(fields: [R18Coop_id], references: [R17Id], onDelete: Cascade)
+}
+
+model R19Movimientos {
+  R19Folio          Int        @id @default(autoincrement())
+  R19Cag            String
+  R19Nom            String
+  R19Figura         Figura
+  R19Suc_id         String     @db.Uuid
+  R19TipoMov        Movimiento
+  R19FMov           String
+  R19FRec           String
+  R19FRev           String
+  R19Est            String
+  R19Coop_id        String     @db.Uuid
+  R19MId            String?
+  R19Creado_en      DateTime   @default(now())
+  R19Actualizado_en DateTime   @updatedAt
+
+  sucursal    R11Sucursal     @relation(fields: [R19Suc_id], references: [R11Id])
+  cooperativa R17Cooperativas @relation(fields: [R19Coop_id], references: [R17Id], onDelete: Cascade)
+
+  evaluacionFase1 R20EvaluacionFase1Sisconcap[]
+  evaluacionFase2 R22EvaluacionFase2Sisconcap[]
+  evaluacionFase3 R24EvaluacionFase3Sisconcap[]
+
+  evaluacionResumenFase1 R21EvaluacionResumenFase1?
+  evaluacionResumenFase2 R23EvaluacionResumenFase2?
+  evaluacionResumenFase3 R25EvaluacionResumenFase3?
+
+  @@index([R19Coop_id])
+}
+
+model R20EvaluacionFase1Sisconcap {
+  R20Id    String   @id @default(uuid()) @db.Uuid
+  R20Folio Int
+  R20E_id  String   @db.Uuid
+  R20Res   ResFaseI @default(NA)
+
+  movimiento R19Movimientos @relation(fields: [R20Folio], references: [R19Folio], onDelete: Cascade)
+
+  @@index([R20Folio])
+}
+
+model R21EvaluacionResumenFase1 {
+  R21Folio   Int          @id
+  R21Ha      Int
+  R21Rc      Int
+  R21Cal     Calificativo
+  R21Obs     String
+  R21Ejvo_id String       @db.Uuid
+  R21SP_id   String       @db.Uuid
+
+  movimiento R19Movimientos @relation(fields: [R21Folio], references: [R19Folio], onDelete: Cascade)
+  supervisor R12Usuario     @relation("Supervisor", fields: [R21SP_id], references: [R12Id])
+  ejecutivo  R12Usuario     @relation("Ejecutivo", fields: [R21Ejvo_id], references: [R12Id])
+
+  @@index([R21Folio])
+}
+
+model R22EvaluacionFase2Sisconcap {
+  R22Id    String    @id @default(uuid()) @db.Uuid
+  R22Folio Int
+  R22E_id  String    @db.Uuid
+  R22Res   ResFaseII @default(NA)
+
+  movimiento R19Movimientos @relation(fields: [R22Folio], references: [R19Folio], onDelete: Cascade)
+
+  @@index([R22Folio])
+}
+
+model R23EvaluacionResumenFase2 {
+  R23Folio Int          @id
+  R23Solv  Int
+  R23PSolv Int
+  R23Rc    Int
+  R23Obs   String
+  R23Cal   Calificativo
+  R23FSeg  String
+  R23SP_id String       @db.Uuid
+
+  movimiento R19Movimientos @relation(fields: [R23Folio], references: [R19Folio], onDelete: Cascade)
+  supervisor R12Usuario     @relation("Supervisor", fields: [R23SP_id], references: [R12Id])
+
+  @@index([R23Folio])
+}
+
+model R24EvaluacionFase3Sisconcap {
+  R24Id    String    @id @default(uuid()) @db.Uuid
+  R24Folio Int
+  R24E_id  String    @db.Uuid
+  R24Res   ResFaseII @default(NA)
+
+  movimiento R19Movimientos @relation(fields: [R24Folio], references: [R19Folio], onDelete: Cascade)
+
+  @@index([R24Folio])
+}
+
+model R25EvaluacionResumenFase3 {
+  R25Folio Int          @id
+  R25Solv  Int
+  R25PSolv Int
+  R25Rc    Int
+  R25Obs   String
+  R25Cal   Calificativo
+  R25FSegG String
+  R25SP_id String       @db.Uuid
+
+  movimiento R19Movimientos @relation(fields: [R25Folio], references: [R19Folio], onDelete: Cascade)
+  supervisor R12Usuario     @relation("Supervisor", fields: [R25SP_id], references: [R12Id])
+
+  @@index([R25Folio])
+}
+
+// * RADIOGRAFIAS
+// CONTROL DE CARGA DE RADIOGRAFIA
+model C01ControlCarga {
+  C01Id                Int        @id @default(autoincrement())
+  C01CooperativaCodigo String     @db.Uuid
+  C01Archivo           String?
+  C01FechaCarga        DateTime   @default(now())
+  C01PeriodoMes        Int
+  C01PeriodoAnio       Int
+  C01Area              RADIO_AREA @default(CREDITO)
+
+  creditos    RA01Credito[]
+  cooperativa R17Cooperativas @relation(fields: [C01CooperativaCodigo], references: [R17Id], onDelete: Cascade)
+
+  @@unique([C01CooperativaCodigo, C01PeriodoMes, C01PeriodoAnio])
+  @@index([C01CooperativaCodigo, C01PeriodoMes, C01PeriodoAnio])
+}
+
+// RADIOGRAFIA DE CRÉDITO
+model RA01Credito {
+  RA01Folio                                           Int     @id @default(autoincrement())
+  RA01NumeroDeCredito                                 String // Numero de Crédito
+  RA01Tipo                                            String // Tipo
+  RA01Categoria                                       String // Categoria
+  RA01Finalidad                                       String // Finalidad
+  RA01DestinoAgropecuario                             String // Destino Agropecuario
+  RA01FormaPago                                       String // Forma Pago
+  RA01FEntrega                                        String // F/Entrega
+  RA01FVencimiento                                    String // F.Vencimiento
+  RA01PeriodicidadCapital                             Decimal @db.Decimal(18, 2) // Periodicidad Capital       
+  RA01PeriodicidadIntereses                           Decimal @db.Decimal(18, 2) // Periodicidad Intereses     
+  RA01Plazo                                           Int // Plazo
+  RA01Abonos                                          String // Abonos
+  RA01CEntregada                                      Int // C.Entregada
+  RA01Microcredito                                    Decimal @db.Decimal(18, 2) // MicroCredito               
+  RA01TipoDeAutorizacion                              String // Tipo de Autorizacion
+  RA01UsrAutorizacion                                 String // Usr Autorizacion
+  RA01UsrSolicitud                                    String // Usr. Solicitud
+  RA01Sucursal                                        String // Sucursal
+  RA01TasaOrdinaria                                   Decimal @db.Decimal(18, 2) // Tasa Ordinaria             
+  RA01TasaMoratoria                                   Decimal @db.Decimal(18, 2) // Tasa Moratoria             
+  RA01EstimacionCapital                               Decimal @db.Decimal(18, 2) // Estimacion Capital           
+  RA01EstimacionInteres                               Decimal @db.Decimal(18, 2) // Estimacion Interes           
+  RA01EstimacionAdicionalPorInteresesEnCarteraVencida String // Estimacion Adicional por intereses  en cartera vencida
+  RA01OrdenoEprc                                      String // Ordeno EPRC
+  RA01TotalEstimado                                   Decimal @db.Decimal(18, 2) // Total Estimado               
+  RA01CalificacionParteCubierta                       Decimal @db.Decimal(18, 2) // Calificacion parte cubierta  
+  RA01CalificacionParteExpuesta                       Decimal @db.Decimal(18, 2) // Calificacion parte expuesta  
+  RA01ParteCubierta                                   String // Parte Cubierta
+  RA01ParteExpuesta                                   Decimal @db.Decimal(18, 2) // Parte Expuesta               
+  RA01MontoEstPartCubierta                            Decimal @db.Decimal(18, 2) // Monto Est.Part.Cubierta      
+  RA01MontoEstPartExpuesta                            Decimal @db.Decimal(18, 2) // Monto Est.Part.Expuesta      
+  RA01TipoDeCartera                                   String // Tipo de Cartera
+  RA01GarantiaHipotecaria                             Decimal @db.Decimal(18, 2) // Garantia Hipotecaria
+  RA01Formalizada                                     String // Formalizada
+  RA01LibreGravamen                                   String // Libre Gravamen
+  RA01FavorSociedad                                   String // Favor Sociedad
+  RA01AvaluoActuallizado                              String // Avaluo Actuallizado
+  RA01DepositoGarantia                                Decimal @db.Decimal(18, 2) // Deposito Garantia            
+  RA01GarantiaLiquida                                 Decimal @db.Decimal(18, 2) // Garantia Liquida             
+  RA01CreditoRedescontado                             String // Credito Redescontado
+  RA01InstitucionFuenteRecursos                       String // Institucion fuente recursos
+  RA01PorcentajeGarantia                              Decimal @db.Decimal(18, 2) // Porcentaje Garantia           
+  RA01GarantiaPrendaria                               Decimal @db.Decimal(18, 2) // Garantia Prendaria            
+  RA01NumeroCag                                       String // Numero CAG
+  RA01NumeroDeSocio                                   String // Numero de socio
+  RA01Nombre                                          String // Nombre
+  RA01RazonSocial                                     String // Razon Social
+  RA01Sexo                                            String // Sexo
+  RA01FIngreso                                        String // F.Ingreso
+  RA01FNacimiento                                     String // F.Nacimiento
+  RA01SocioRelacionado                                String // Socio Relacionado
+  RA01Calle                                           String // Calle
+  RA01NoCivico                                        String // No. Civico
+  RA01Colonia                                         String // Colonia
+  RA01Ciudad                                          String // Ciudad
+  RA01Municipio                                       String // Municipio
+  RA01Estado                                          String // Estado
+  RA01CodPostal                                       String // Cod.Postal
+  RA01Telefono                                        String // Telefono
+  RA01Marginada                                       String // Marginada
+  RA01GradoEstudios                                   String // Grado Estudios
+  RA01Ocupacion                                       String // Ocupacion
+  RA01Curp                                            String // CURP
+  RA01Rfc                                             String // RFC
+  RA01Riesgo                                          String // Riesgo
+  RA01Ingresos                                        Decimal @db.Decimal(18, 2) // Ingresos                         
+  RA01TendenciaGastos                                 Decimal @db.Decimal(18, 2) // Tendencia Gastos                 
+  RA01MontoHaberes                                    Decimal @db.Decimal(18, 2) // Monto Haberes                    
+  RA01CapitalCobrado                                  Decimal @db.Decimal(18, 2) // Capital Cobrado                  
+  RA01CapitalVencido                                  Decimal @db.Decimal(18, 2) // Capital Vencido                  
+  RA01AbonosVencidos                                  Int // Abonos Vencidos
+  RA01DiasMora                                        Int // Dias Mora
+  RA01DiasParaVencer                                  Int // Dias para Vencer
+  RA01FechaUltimoPagoCapital                          String // Fecha Ultimo Pago Capital
+  RA01MontoUltPagoCapital                             Decimal @db.Decimal(18, 2) // Monto Ult Pago Capital           
+  RA01FechaUltimoPagoInteres                          String // Fecha Ultimo Pago Interes
+  RA01MontoUltPagoInteres                             Decimal @db.Decimal(18, 2) // Monto Ult Pago Interes           
+  RA01FechaCambioSituacion                            String // Fecha Cambio Situacion
+  RA01InteresMoratorio                                Decimal @db.Decimal(18, 2) // Interes Moratorio                
+  RA01InteresMoratorioCobrado                         Decimal @db.Decimal(18, 2) // Interes Moratorio Cobrado        
+  RA01InteresMoratorioCarteraVe                       Decimal @db.Decimal(18, 2) // Interes Moratorio Cartera Ve     
+  RA01InteresMoratorioCtaOrden                        Decimal @db.Decimal(18, 2) // Interes Moratorio Cta Orden      
+  RA01InteresNormal                                   Decimal @db.Decimal(18, 2) // Interes Normal                   
+  RA01InteresNormalCobrado                            Decimal @db.Decimal(18, 2) // Interes Normal Cobrado           
+  RA01InteresNormalCarteraVe                          Decimal @db.Decimal(18, 2) // Interes Normal Cartera Ve        
+  RA01InteresNormalCtaOrden                           Decimal @db.Decimal(18, 2) // Interes Normal Cta Orden         
+  RA01InteresProximoAbono                             Decimal @db.Decimal(18, 2) // Interes Proximo Abono            
+  RA01FechaProximoAbono                               String // Fecha Proximo Abono
+  RA01SaldoCapitalCartVig                             Decimal @db.Decimal(18, 2) // Saldo Capital Cart.Vig           
+  RA01SaldoCapitalCartVen                             Decimal @db.Decimal(18, 2) // Saldo Capital Cart.Ven           
+  RA01TipoDeCobranza                                  String // Tipo de Cobranza
+  RA01VigenteOVencido                                 String // Vigente o Vencido
+  RA01FPrimeramortvencida                             String // F.PrimerAmortVencida
+  RA01FConsultaburo                                   String // F/ConsultaBuro
+  RA01SituacionDelCredito                             String // Situacion del Credito
+  RA01TotalCartera                                    Decimal @db.Decimal(18, 2) // Total Cartera
+
+  // Relación al lote/carga
+  RA01ControlId Int
+  control       C01ControlCarga @relation(fields: [RA01ControlId], references: [C01Id], onDelete: Cascade)
+
+  A02MuestraCreditoSeleccion A02MuestraCreditoSeleccion[]
+}
+
+//* AUDITORIA
+// Crédito
+model A01MuestraSeleccionCredito {
+  A01Id            Int      @id @default(autoincrement())
+  A01FechaCreacion DateTime @default(now())
+
+  // Relación con el usuario que realizó la selección
+  A01UsuarioId String     @db.Uuid
+  usuario      R12Usuario @relation(fields: [A01UsuarioId], references: [R12Id])
+
+  // Relación con la cooperativa
+  A01CoopId   String          @db.Uuid
+  cooperativa R17Cooperativas @relation(fields: [A01CoopId], references: [R17Id], onDelete: Cascade)
+
+  // Parámetros de la muestra
+  A01MargenError    Float
+  A01NivelConfianza Float
+  A01FechaInicio    DateTime
+  A01FechaFinal     DateTime
+  A01TamanoMuestra  Int
+  A01TamanoUniverso Int
+
+  // Estado de la muestra
+  A01Finalizada Boolean @default(false)
+
+  // Relación 1:N con los créditos seleccionados
+  seleccionados A02MuestraCreditoSeleccion[]
+}
+
+model A02MuestraCreditoSeleccion {
+  A02Id        Int                        @id @default(autoincrement())
+  A02MuestraId Int
+  muestra      A01MuestraSeleccionCredito @relation(fields: [A02MuestraId], references: [A01Id], onDelete: Cascade)
+
+  // Relación con crédito original
+  A02CreditoFolio Int
+  credito         RA01Credito @relation(fields: [A02CreditoFolio], references: [RA01Folio], onDelete: Cascade)
+  A02Sucursal     String      @db.Uuid
+  sucursal        R11Sucursal @relation(fields: [A02Sucursal], references: [R11Id])
+
+  // ───────────────────────────────
+  // Información desnormalizada del crédito
+  // ───────────────────────────────
+  A02CAG                   String?
+  A02Nombre                String?
+  A02Relacion              String?
+  A02Prestamo              String?
+  A02Clasificacion         String?
+  A02Producto              String?
+  A02Finalidad             String?
+  A02DestinoAgro           String?
+  A02TipoPago              String?
+  A02FechaOtorgamiento     String? // ISO
+  A02FechaVencimiento      String? // ISO
+  A02FechaConsultaBuro     String? // ISO
+  A02FechaEntrega          String? // ISO
+  A02PlazoDias             Int?
+  A02TasaInteresNormal     Decimal? @db.Decimal(18, 2)
+  A02CantidadEntregada     Int?
+  A02DeudaTotal            Decimal? @db.Decimal(18, 2)
+  A02GarantiaLiquida       Decimal? @db.Decimal(18, 2)
+  A02GarantiaPrendaria     Decimal? @db.Decimal(18, 2)
+  A02GarantiaHipotecaria   Decimal? @db.Decimal(18, 2)
+  A02TipoAutorizacion      String?
+  A02UsrAutorizacionNi     String?
+  A02UsrAutorizacionNombre String?
+
+  // 🔹 Campo calculado: Tipo de crédito (Aut / Ord)
+  A02TipoCredito String? // “Aut.” o “Ord.”
+
+  A02Estado String @default("No revisado")
+
+  resumenRevisionF1    A04EvaluacionResumenFase1?
+  evaluacionRevisionF1 A03EvaluacionFase1AuditoriaC[]
+
+  resumenRevisionF2    A06EvaluacionResumenFase2?
+  evaluacionRevisionF2 A05EvaluacionFase2AuditoriaC[]
+}
+
+// Revision FASE I
+model A03EvaluacionFase1AuditoriaC {
+  A03Id   String   @id @default(uuid()) @db.Uuid
+  A03CSId Int
+  A03E_id String   @db.Uuid
+  A03Res  ResFaseI @default(NA)
+
+  creditoSeleccion A02MuestraCreditoSeleccion @relation(fields: [A03CSId], references: [A02Id], onDelete: Cascade)
+  elemento         R04Elemento                @relation(fields: [A03E_id], references: [R04Id], onDelete: Cascade)
+}
+
+model A04EvaluacionResumenFase1 {
+  A04Id     Int           @id
+  A04PSAut  String
+  A04Excep  String
+  A04Ha     Int
+  A04PRes   Int
+  A04MonR   Int
+  A04CalA   Calificativo
+  A04CalB   CalificativoB
+  A04Obs    String
+  A04Comp   String
+  A04FPlzo  String
+  A04Resp   String        @db.Uuid
+  A04Aud_id String        @db.Uuid
+  A04FRev   String
+
+  creditoSeleccion A02MuestraCreditoSeleccion @relation(fields: [A04Id], references: [A02Id], onDelete: Cascade)
+  auditor          R12Usuario                 @relation("Auditor", fields: [A04Aud_id], references: [R12Id])
+  responsable      R12Usuario                 @relation("Responsable", fields: [A04Resp], references: [R12Id])
+}
+
+// SEGUIMIENTO FASE 2
+model A05EvaluacionFase2AuditoriaC {
+  A05Id   String    @id @default(uuid()) @db.Uuid
+  A05CSId Int
+  A05E_id String    @db.Uuid
+  A05Res  ResFaseII @default(NA)
+
+  creditoSeleccion A02MuestraCreditoSeleccion @relation(fields: [A05CSId], references: [A02Id], onDelete: Cascade)
+  elemento         R04Elemento                @relation(fields: [A05E_id], references: [R04Id], onDelete: Cascade)
+}
+
+model A06EvaluacionResumenFase2 {
+  A06Id     Int        @id
+  A06Solv   Int
+  A06NSolv  Int
+  A06ARes   AResultado
+  A06Obs    String
+  A06Aud_id String     @db.Uuid
+  A06FSeg   String
+
+  creditoSeleccion A02MuestraCreditoSeleccion @relation(fields: [A06Id], references: [A02Id], onDelete: Cascade)
+  auditor          R12Usuario                 @relation("Auditor", fields: [A06Aud_id], references: [R12Id])
+}
+
+model M01ControlMigracion {
+  M01Id        Int      @id @default(autoincrement())
+  M01Coop_id   String   @db.Uuid // <-- Cooperativa origen
+  M01Sistema   String // "SISCONCRE" | "SISCONCAP"
+  M01Fase      String // "F1" | "F2" | "F3" | "F4"
+  M01Archivo   String
+  M01Fecha     DateTime @default(now())
+  M01Total     Int
+  M01Correctos Int
+  M01Errores   Int
+  M01Estado    String // "EN_PROCESO" | "COMPLETADO" | "FALLÓ"
+  M01Log       String?
+
+  cooperativa R17Cooperativas @relation(fields: [M01Coop_id], references: [R17Id], onDelete: Cascade)
+
+  @@index([M01Coop_id, M01Sistema, M01Fase])
+  @@index([M01Fecha])
+}
+
+// * LICENCIAMIENTO
+
+model M02Modulo {
+  M02Id     Int     @id @default(autoincrement())
+  M02Codigo String  @unique // CONTROL_INTERNO, OPERACIONES, ADMIN_FINANZAS, VARIOS
+  M02Nombre String
+  M02Orden  Int?
+  M02Activo Boolean @default(true)
+
+  submodulos   M03SubModulo[]
+  cooperativas C02CooperativaModulo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model M03SubModulo {
+  M03Id     Int     @id @default(autoincrement())
+  M03Codigo String // AUDITORIA_CREDITO, INVENTARIOS, CONTABILIDAD, etc.
+  M03Nombre String
+  M03Orden  Int?
+  M03Activo Boolean @default(true)
+
+  M03ModuloId Int
+  modulo      M02Modulo @relation(fields: [M03ModuloId], references: [M02Id], onDelete: Cascade)
+
+  cooperativas C03CooperativaSubModulo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([M03ModuloId, M03Codigo])
+}
+
+model C02CooperativaModulo {
+  C02Id Int @id @default(autoincrement())
+
+  C02CoopId   String @db.Uuid
+  C02ModuloId Int
+
+  C02Activo      Boolean   @default(true)
+  C02FechaInicio DateTime
+  C02FechaFin    DateTime?
+
+  cooperativa R17Cooperativas @relation(fields: [C02CoopId], references: [R17Id], onDelete: Cascade)
+  modulo      M02Modulo       @relation(fields: [C02ModuloId], references: [M02Id])
+
+  submodulos C03CooperativaSubModulo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([C02CoopId, C02ModuloId])
+}
+
+model C03CooperativaSubModulo {
+  C03Id Int @id @default(autoincrement())
+
+  C03CoopModuloId Int
+  C03SubModuloId  Int
+
+  C03Activo Boolean @default(true)
+
+  coopModulo C02CooperativaModulo @relation(fields: [C03CoopModuloId], references: [C02Id], onDelete: Cascade)
+  subModulo  M03SubModulo         @relation(fields: [C03SubModuloId], references: [M03Id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([C03CoopModuloId, C03SubModuloId])
+}
+
+// * ACTIVITY-LOG-MS
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  PASSWORD_CHANGE
+  ASSIGN
+  UNASSIGN
+  UPLOAD
+  MIGRATE
+  EXECUTE
+  ERROR
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILED
+}
+
+enum AuditSource {
+  API
+  SYSTEM
+  JOB
+  MIGRATION
+}
+
+model AL01AuditLog {
+  AL01Id BigInt @id @default(autoincrement())
+
+  // Origen
+  AL01Service   String // supervision-ms, config-ms, auth-ms
+  AL01Module    String // credito, licenciamiento, radiografias
+  AL01Action    AuditAction
+  AL01Source    AuditSource @default(API)
+  AL01Result    AuditResult @default(SUCCESS)
+  AL01EventName String?
+
+  // Entidad afectada
+  AL01Entity   String // R01Prestamo, R05EvaluacionFase1, etc
+  AL01EntityId String? // uuid / id lógico
+
+  // Contexto usuario
+  AL01UserId     String?
+  AL01UserNombre String?
+  AL01UserRol    String?
+
+  // Contexto organizacional
+  AL01CooperativaId String?
+  AL01SucursalId    String?
+
+  // Datos antes / después
+  AL01Before Json?
+  AL01After  Json?
+
+  // Metadata técnica
+  AL01Ip            String?
+  AL01UserAgent     String?
+  AL01RequestId     String?
+  AL01CorrelationId String?
+
+  // Mensajes y errores
+  AL01Message String?
+  AL01Error   String?
+
+  // Timestamps
+  AL01CreatedAt DateTime @default(now())
+
+  @@index([AL01Service, AL01Module])
+  @@index([AL01Action])
+  @@index([AL01Entity, AL01EntityId])
+  @@index([AL01UserId])
+  @@index([AL01CooperativaId])
+  @@index([AL01CreatedAt])
+  @@index([AL01CooperativaId, AL01CreatedAt])
+}
