@@ -30,6 +30,6 @@ async function bootstrap() {
   console.log('✅ Microservicio conectado a NATS (Operaciones-MS)');
 
   await app.listen(envs.port); // GraphQL Expuesto localmente
-  logger.log(`Operaciones Microservice running on port ${envs.port}`);
+  logger.log(`Operaciones Microservice running on port ${envs.port}`)
 }
 bootstrap();
