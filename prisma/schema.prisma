@@ -566,8 +566,8 @@ model C01ControlCarga {
   creditos    RA01Credito[]
   cooperativa R17Cooperativas @relation(fields: [C01CooperativaCodigo], references: [R17Id], onDelete: Cascade)
 
-  @@unique([C01CooperativaCodigo, C01PeriodoMes, C01PeriodoAnio])
-  @@index([C01CooperativaCodigo, C01PeriodoMes, C01PeriodoAnio])
+  @@unique([C01CooperativaCodigo, C01PeriodoMes, C01PeriodoAnio, C01Area])
+  @@index([C01CooperativaCodigo, C01Area, C01PeriodoAnio, C01PeriodoMes])
 }
 
 // RADIOGRAFIA DE CRÉDITO
@@ -581,41 +581,41 @@ model RA01Credito {
   RA01FormaPago                                       String // Forma Pago
   RA01FEntrega                                        String // F/Entrega
   RA01FVencimiento                                    String // F.Vencimiento
-  RA01PeriodicidadCapital                             Decimal @db.Decimal(18, 2) // Periodicidad Capital       
-  RA01PeriodicidadIntereses                           Decimal @db.Decimal(18, 2) // Periodicidad Intereses     
+  RA01PeriodicidadCapital                             Decimal @db.Decimal(18, 2) // Periodicidad Capital
+  RA01PeriodicidadIntereses                           Decimal @db.Decimal(18, 2) // Periodicidad Intereses
   RA01Plazo                                           Int // Plazo
   RA01Abonos                                          String // Abonos
   RA01CEntregada                                      Int // C.Entregada
-  RA01Microcredito                                    Decimal @db.Decimal(18, 2) // MicroCredito               
+  RA01Microcredito                                    Decimal @db.Decimal(18, 2) // MicroCredito
   RA01TipoDeAutorizacion                              String // Tipo de Autorizacion
   RA01UsrAutorizacion                                 String // Usr Autorizacion
   RA01UsrSolicitud                                    String // Usr. Solicitud
   RA01Sucursal                                        String // Sucursal
-  RA01TasaOrdinaria                                   Decimal @db.Decimal(18, 2) // Tasa Ordinaria             
-  RA01TasaMoratoria                                   Decimal @db.Decimal(18, 2) // Tasa Moratoria             
-  RA01EstimacionCapital                               Decimal @db.Decimal(18, 2) // Estimacion Capital           
-  RA01EstimacionInteres                               Decimal @db.Decimal(18, 2) // Estimacion Interes           
+  RA01TasaOrdinaria                                   Decimal @db.Decimal(18, 2) // Tasa Ordinaria
+  RA01TasaMoratoria                                   Decimal @db.Decimal(18, 2) // Tasa Moratoria
+  RA01EstimacionCapital                               Decimal @db.Decimal(18, 2) // Estimacion Capital
+  RA01EstimacionInteres                               Decimal @db.Decimal(18, 2) // Estimacion Interes
   RA01EstimacionAdicionalPorInteresesEnCarteraVencida String // Estimacion Adicional por intereses  en cartera vencida
   RA01OrdenoEprc                                      String // Ordeno EPRC
-  RA01TotalEstimado                                   Decimal @db.Decimal(18, 2) // Total Estimado               
-  RA01CalificacionParteCubierta                       Decimal @db.Decimal(18, 2) // Calificacion parte cubierta  
-  RA01CalificacionParteExpuesta                       Decimal @db.Decimal(18, 2) // Calificacion parte expuesta  
+  RA01TotalEstimado                                   Decimal @db.Decimal(18, 2) // Total Estimado
+  RA01CalificacionParteCubierta                       Decimal @db.Decimal(18, 2) // Calificacion parte cubierta
+  RA01CalificacionParteExpuesta                       Decimal @db.Decimal(18, 2) // Calificacion parte expuesta
   RA01ParteCubierta                                   String // Parte Cubierta
-  RA01ParteExpuesta                                   Decimal @db.Decimal(18, 2) // Parte Expuesta               
-  RA01MontoEstPartCubierta                            Decimal @db.Decimal(18, 2) // Monto Est.Part.Cubierta      
-  RA01MontoEstPartExpuesta                            Decimal @db.Decimal(18, 2) // Monto Est.Part.Expuesta      
+  RA01ParteExpuesta                                   Decimal @db.Decimal(18, 2) // Parte Expuesta
+  RA01MontoEstPartCubierta                            Decimal @db.Decimal(18, 2) // Monto Est.Part.Cubierta
+  RA01MontoEstPartExpuesta                            Decimal @db.Decimal(18, 2) // Monto Est.Part.Expuesta
   RA01TipoDeCartera                                   String // Tipo de Cartera
   RA01GarantiaHipotecaria                             Decimal @db.Decimal(18, 2) // Garantia Hipotecaria
   RA01Formalizada                                     String // Formalizada
   RA01LibreGravamen                                   String // Libre Gravamen
   RA01FavorSociedad                                   String // Favor Sociedad
   RA01AvaluoActuallizado                              String // Avaluo Actuallizado
-  RA01DepositoGarantia                                Decimal @db.Decimal(18, 2) // Deposito Garantia            
-  RA01GarantiaLiquida                                 Decimal @db.Decimal(18, 2) // Garantia Liquida             
+  RA01DepositoGarantia                                Decimal @db.Decimal(18, 2) // Deposito Garantia
+  RA01GarantiaLiquida                                 Decimal @db.Decimal(18, 2) // Garantia Liquida
   RA01CreditoRedescontado                             String // Credito Redescontado
   RA01InstitucionFuenteRecursos                       String // Institucion fuente recursos
-  RA01PorcentajeGarantia                              Decimal @db.Decimal(18, 2) // Porcentaje Garantia           
-  RA01GarantiaPrendaria                               Decimal @db.Decimal(18, 2) // Garantia Prendaria            
+  RA01PorcentajeGarantia                              Decimal @db.Decimal(18, 2) // Porcentaje Garantia
+  RA01GarantiaPrendaria                               Decimal @db.Decimal(18, 2) // Garantia Prendaria
   RA01NumeroCag                                       String // Numero CAG
   RA01NumeroDeSocio                                   String // Numero de socio
   RA01Nombre                                          String // Nombre
@@ -638,31 +638,31 @@ model RA01Credito {
   RA01Curp                                            String // CURP
   RA01Rfc                                             String // RFC
   RA01Riesgo                                          String // Riesgo
-  RA01Ingresos                                        Decimal @db.Decimal(18, 2) // Ingresos                         
-  RA01TendenciaGastos                                 Decimal @db.Decimal(18, 2) // Tendencia Gastos                 
-  RA01MontoHaberes                                    Decimal @db.Decimal(18, 2) // Monto Haberes                    
-  RA01CapitalCobrado                                  Decimal @db.Decimal(18, 2) // Capital Cobrado                  
-  RA01CapitalVencido                                  Decimal @db.Decimal(18, 2) // Capital Vencido                  
+  RA01Ingresos                                        Decimal @db.Decimal(18, 2) // Ingresos
+  RA01TendenciaGastos                                 Decimal @db.Decimal(18, 2) // Tendencia Gastos
+  RA01MontoHaberes                                    Decimal @db.Decimal(18, 2) // Monto Haberes
+  RA01CapitalCobrado                                  Decimal @db.Decimal(18, 2) // Capital Cobrado
+  RA01CapitalVencido                                  Decimal @db.Decimal(18, 2) // Capital Vencido
   RA01AbonosVencidos                                  Int // Abonos Vencidos
   RA01DiasMora                                        Int // Dias Mora
   RA01DiasParaVencer                                  Int // Dias para Vencer
   RA01FechaUltimoPagoCapital                          String // Fecha Ultimo Pago Capital
-  RA01MontoUltPagoCapital                             Decimal @db.Decimal(18, 2) // Monto Ult Pago Capital           
+  RA01MontoUltPagoCapital                             Decimal @db.Decimal(18, 2) // Monto Ult Pago Capital
   RA01FechaUltimoPagoInteres                          String // Fecha Ultimo Pago Interes
-  RA01MontoUltPagoInteres                             Decimal @db.Decimal(18, 2) // Monto Ult Pago Interes           
+  RA01MontoUltPagoInteres                             Decimal @db.Decimal(18, 2) // Monto Ult Pago Interes
   RA01FechaCambioSituacion                            String // Fecha Cambio Situacion
-  RA01InteresMoratorio                                Decimal @db.Decimal(18, 2) // Interes Moratorio                
-  RA01InteresMoratorioCobrado                         Decimal @db.Decimal(18, 2) // Interes Moratorio Cobrado        
-  RA01InteresMoratorioCarteraVe                       Decimal @db.Decimal(18, 2) // Interes Moratorio Cartera Ve     
-  RA01InteresMoratorioCtaOrden                        Decimal @db.Decimal(18, 2) // Interes Moratorio Cta Orden      
-  RA01InteresNormal                                   Decimal @db.Decimal(18, 2) // Interes Normal                   
-  RA01InteresNormalCobrado                            Decimal @db.Decimal(18, 2) // Interes Normal Cobrado           
-  RA01InteresNormalCarteraVe                          Decimal @db.Decimal(18, 2) // Interes Normal Cartera Ve        
-  RA01InteresNormalCtaOrden                           Decimal @db.Decimal(18, 2) // Interes Normal Cta Orden         
-  RA01InteresProximoAbono                             Decimal @db.Decimal(18, 2) // Interes Proximo Abono            
+  RA01InteresMoratorio                                Decimal @db.Decimal(18, 2) // Interes Moratorio
+  RA01InteresMoratorioCobrado                         Decimal @db.Decimal(18, 2) // Interes Moratorio Cobrado
+  RA01InteresMoratorioCarteraVe                       Decimal @db.Decimal(18, 2) // Interes Moratorio Cartera Ve
+  RA01InteresMoratorioCtaOrden                        Decimal @db.Decimal(18, 2) // Interes Moratorio Cta Orden
+  RA01InteresNormal                                   Decimal @db.Decimal(18, 2) // Interes Normal
+  RA01InteresNormalCobrado                            Decimal @db.Decimal(18, 2) // Interes Normal Cobrado
+  RA01InteresNormalCarteraVe                          Decimal @db.Decimal(18, 2) // Interes Normal Cartera Ve
+  RA01InteresNormalCtaOrden                           Decimal @db.Decimal(18, 2) // Interes Normal Cta Orden
+  RA01InteresProximoAbono                             Decimal @db.Decimal(18, 2) // Interes Proximo Abono
   RA01FechaProximoAbono                               String // Fecha Proximo Abono
-  RA01SaldoCapitalCartVig                             Decimal @db.Decimal(18, 2) // Saldo Capital Cart.Vig           
-  RA01SaldoCapitalCartVen                             Decimal @db.Decimal(18, 2) // Saldo Capital Cart.Ven           
+  RA01SaldoCapitalCartVig                             Decimal @db.Decimal(18, 2) // Saldo Capital Cart.Vig
+  RA01SaldoCapitalCartVen                             Decimal @db.Decimal(18, 2) // Saldo Capital Cart.Ven
   RA01TipoDeCobranza                                  String // Tipo de Cobranza
   RA01VigenteOVencido                                 String // Vigente o Vencido
   RA01FPrimeramortvencida                             String // F.PrimerAmortVencida
