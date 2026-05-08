@@ -6,6 +6,9 @@ import {
 
 @ObjectType()
 export class CreditoDashboardHeaderOutput {
+  @Field(() => String, { nullable: true })
+  oficinaCodigo?: string | null;
+  
   @Field(() => String)
   oficinaConsultada: string;
 

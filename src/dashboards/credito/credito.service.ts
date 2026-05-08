@@ -57,32 +57,50 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         capitalDesembolsado: bigint;
         numeroPrestamos: bigint;
         totalCooperativa: bigint;
+        oficinaConsultada: string | null;
       }[]
     >`
-    SELECT
-      COALESCE(
-        SUM(r."RA01CEntregada") FILTER (WHERE ${oficinaCondition}),
-        0
-      )::bigint AS "capitalDesembolsado",
+      SELECT
+        COALESCE(
+          SUM(r."RA01CEntregada") FILTER (WHERE ${oficinaCondition}),
+          0
+        )::bigint AS "capitalDesembolsado",
 
-      COUNT(*) FILTER (WHERE ${oficinaCondition})::bigint AS "numeroPrestamos",
+        COUNT(*) FILTER (WHERE ${oficinaCondition})::bigint AS "numeroPrestamos",
 
-      COALESCE(
-        SUM(r."RA01CEntregada"),
-        0
-      )::bigint AS "totalCooperativa"
-    FROM "RA01Credito" r
-    INNER JOIN "C01ControlCarga" c
-      ON c."C01Id" = r."RA01ControlId"
-    WHERE ${baseWhere}
-  `;
+        COALESCE(
+          SUM(r."RA01CEntregada"),
+          0
+        )::bigint AS "totalCooperativa",
+
+        ${
+          input.oficina
+            ? Prisma.sql`
+              COALESCE(
+                MAX(s."R11Nom") FILTER (WHERE ${oficinaCondition}),
+                'Sucursal desconocida'
+              )
+            `
+            : Prisma.sql`${CreditoService.OFICINA_GLOBAL}`
+        } AS "oficinaConsultada"
+
+      FROM "RA01Credito" r
+             INNER JOIN "C01ControlCarga" c
+                        ON c."C01Id" = r."RA01ControlId"
+             LEFT JOIN "R11Sucursal" s
+                       ON s."R11NumSuc" = r."RA01Sucursal"
+                         AND s."R11Coop_id" = c."C01CooperativaCodigo"
+      WHERE ${baseWhere}
+    `;
 
     const capitalDesembolsado = Number(row?.capitalDesembolsado ?? 0);
     const numeroPrestamos = Number(row?.numeroPrestamos ?? 0);
     const totalCooperativa = Number(row?.totalCooperativa ?? 0);
 
     return {
-      oficinaConsultada: input.oficina ?? CreditoService.OFICINA_GLOBAL,
+      oficinaCodigo: input.oficina ?? null,
+      oficinaConsultada:
+        row?.oficinaConsultada ?? CreditoService.OFICINA_GLOBAL,
       cifrasPor: input.evaluacion,
       informe: input.informe,
       capitalDesembolsado,
