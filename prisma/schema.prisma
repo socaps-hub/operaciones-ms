@@ -80,6 +80,10 @@ enum RADIO_AREA {
   CREDITO
 }
 
+enum OP_META_AREA {
+  CREDITO
+}
+
 model R17Cooperativas {
   R17Id        String   @id @default(uuid()) @db.Uuid
   R17Nom       String
@@ -570,7 +574,7 @@ model C01ControlCarga {
   @@index([C01CooperativaCodigo, C01Area, C01PeriodoAnio, C01PeriodoMes])
 }
 
-// RADIOGRAFIA DE CRÉDITO
+// CRÉDITO
 model RA01Credito {
   RA01Folio                                           Int     @id @default(autoincrement())
   RA01NumeroDeCredito                                 String // Numero de Crédito
@@ -675,6 +679,43 @@ model RA01Credito {
   control       C01ControlCarga @relation(fields: [RA01ControlId], references: [C01Id], onDelete: Cascade)
 
   A02MuestraCreditoSeleccion A02MuestraCreditoSeleccion[]
+}
+
+// ======================================================
+// OPERACIONES - CREDITO
+// CONTROL DE CARGA DE METAS DE COLOCACION
+// ======================================================
+
+model OP00ControlMetaColocacion {
+  OP00Id                Int          @id @default(autoincrement())
+  OP00CooperativaCodigo String       @db.Uuid
+  OP00PeriodoAnio       Int
+  OP00Area              OP_META_AREA
+  OP00Archivo           String?
+  OP00FechaCarga        DateTime     @default(now())
+
+  metas OP01MetaColocacion[]
+
+  @@unique([OP00CooperativaCodigo, OP00PeriodoAnio, OP00Area])
+  @@index([OP00CooperativaCodigo, OP00PeriodoAnio, OP00Area])
+}
+
+// ======================================================
+// OPERACIONES - CREDITO
+// METAS MENSUALES DE COLOCACION POR SUCURSAL
+// ======================================================
+
+model OP01MetaColocacion {
+  OP01Id             Int     @id @default(autoincrement())
+  OP01ControlId      Int
+  OP01SucursalNumero String
+  OP01PeriodoMes     Int
+  OP01Meta           Decimal @db.Decimal(18, 2)
+
+  control OP00ControlMetaColocacion @relation(fields: [OP01ControlId], references: [OP00Id], onDelete: Cascade)
+
+  @@unique([OP01ControlId, OP01SucursalNumero, OP01PeriodoMes])
+  @@index([OP01ControlId, OP01SucursalNumero, OP01PeriodoMes])
 }
 
 //* AUDITORIA

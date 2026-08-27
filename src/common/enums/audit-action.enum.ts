@@ -1,0 +1,15 @@
+
+export enum AuditActionEnum {
+    CREATE = 'CREATE',
+    UPDATE = 'UPDATE',
+    DELETE = 'DELETE',
+    LOGIN = 'LOGIN',
+    LOGOUT = 'LOGOUT',
+    PASSWORD_CHANGE = 'PASSWORD_CHANGE',
+    ASSIGN = 'ASSIGN',
+    UNASSIGN = 'UNASSIGN',
+    UPLOAD = 'UPLOAD',
+    MIGRATE = 'MIGRATE',
+    EXECUTE = 'EXECUTE',
+    ERROR = 'ERROR',
+}

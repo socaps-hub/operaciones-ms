@@ -5,6 +5,8 @@ import { ApolloServerPluginLandingPageLocalDefault } from '@apollo/server/plugin
 import { join } from 'path';
 import { HelloWorldModule } from './hello-world/hello-world.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
+import { CommonModule } from './common/common.module';
+import { MetasModule } from './metas/metas.module';
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { DashboardsModule } from './dashboards/dashboards.module';
     }),
     HelloWorldModule,
     DashboardsModule,
+    CommonModule,
+    MetasModule,
   ],
   controllers: [],
   providers: [],
