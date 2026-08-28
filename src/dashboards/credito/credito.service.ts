@@ -12,6 +12,9 @@ import { CreditoMedicionAnualInput } from './dto/inputs/credito-medicion-anual.i
 import { CreditoMedicionAnualOutput } from './dto/outputs/credito-medicion-anual.output';
 import { CreditoMedicionMensualInput } from './dto/inputs/credito-medicion-mensual.input';
 import { CreditoMedicionMensualOutput } from './dto/outputs/credito-medicion-mensual.output';
+import { CreditoMedicionTrimestralInput } from './dto/inputs/credito-medicion-trimestral.input';
+import { CreditoMedicionTrimestralOutput } from './dto/outputs/credito-medicion-trimestral.output';
+import { CreditoMedicionTrimestralMesOutput } from './dto/outputs/credito-medicion-trimestral-mes.output';
 
 @Injectable()
 export class CreditoService extends PrismaClient implements OnModuleInit {
@@ -330,19 +333,14 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         ? Prisma.sql`r."RA01Sucursal" = ${input.oficina}`
         : Prisma.sql`TRUE`;
 
-      const fechaInicio =
-        `${input.periodoAnio}-${String(input.periodoMes).padStart(2, '0')}-01`;
+      const fechaInicio = `${input.periodoAnio}-${String(input.periodoMes).padStart(2, '0')}-01`;
 
       const fechaFin = this._getNextMonthDate(
         input.periodoAnio,
         input.periodoMes,
       );
 
-      const [
-        [metaRow],
-        [colocacionRow],
-        sucursal,
-      ] = await Promise.all([
+      const [[metaRow], [colocacionRow], sucursal] = await Promise.all([
         // Meta correspondiente únicamente al mes seleccionado.
         this.$queryRaw<
           {
@@ -368,15 +366,9 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         // Colocación y número de préstamos exclusivamente del mes consultado.
         this.$queryRaw<
           {
-            realColocado:
-              | Prisma.Decimal
-              | number
-              | bigint
-              | string;
+            realColocado: Prisma.Decimal | number | bigint | string;
 
-            numeroPrestamos:
-              | number
-              | bigint;
+            numeroPrestamos: number | bigint;
           }[]
         >`
         SELECT
@@ -402,42 +394,32 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         // Consultar el nombre solamente cuando se seleccionó una oficina.
         input.oficina
           ? this.r11Sucursal.findFirst({
-            where: {
-              R11Coop_id: input.cooperativaId,
-              R11NumSuc: input.oficina,
-            },
-            select: {
-              R11Nom: true,
-            },
-          })
+              where: {
+                R11Coop_id: input.cooperativaId,
+                R11NumSuc: input.oficina,
+              },
+              select: {
+                R11Nom: true,
+              },
+            })
           : Promise.resolve(null),
       ]);
 
-      const metaMes =
-        this._toNumber(metaRow?.metaMes);
+      const metaMes = this._toNumber(metaRow?.metaMes);
 
-      const realColocado =
-        this._toNumber(colocacionRow?.realColocado);
+      const realColocado = this._toNumber(colocacionRow?.realColocado);
 
-      const numeroPrestamos =
-        this._toNumber(colocacionRow?.numeroPrestamos);
+      const numeroPrestamos = this._toNumber(colocacionRow?.numeroPrestamos);
 
       const cumplimientoPorcentaje =
-        metaMes > 0
-          ? this._toPercentage(
-            realColocado,
-            metaMes,
-          )
-          : 0;
+        metaMes > 0 ? this._toPercentage(realColocado, metaMes) : 0;
 
-      const faltante =
-        realColocado - metaMes;
+      const faltante = realColocado - metaMes;
 
       return {
-        oficinaNombre:
-          input.oficina
-            ? sucursal?.R11Nom ?? 'Sucursal desconocida'
-            : 'Global',
+        oficinaNombre: input.oficina
+          ? (sucursal?.R11Nom ?? 'Sucursal desconocida')
+          : 'Global',
 
         periodoMes: input.periodoMes,
         periodoAnio: input.periodoAnio,
@@ -452,9 +434,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
 
         numeroPrestamos,
 
-        cumplioMeta:
-          metaMes > 0 &&
-          realColocado >= metaMes,
+        cumplioMeta: metaMes > 0 && realColocado >= metaMes,
       };
     } catch (error) {
       if (error instanceof RpcException) {
@@ -466,9 +446,214 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
           ? error.message
           : 'Ocurrió un error al obtener la medición mensual de crédito.';
 
-      this._logger.error(
-        `Error en medición mensual de crédito: ${message}`,
+      this._logger.error(`Error en medición mensual de crédito: ${message}`);
+
+      throw new RpcException({
+        message,
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
+  }
+
+  public async getMedicionTrimestral(
+    input: CreditoMedicionTrimestralInput,
+  ): Promise<CreditoMedicionTrimestralOutput> {
+    try {
+      const { numeroTrimestre, mesInicio, mesFin } = this._getQuarter(
+        input.periodoMes,
       );
+
+      /*
+       * Sólo calculamos hasta el período seleccionado.
+       *
+       * Ejemplo:
+       * periodoMes = 7
+       * trimestre = Jul-Sep
+       * meses calculables = [7]
+       *
+       * periodoMes = 8
+       * meses calculables = [7, 8]
+       *
+       * periodoMes = 9
+       * meses calculables = [7, 8, 9]
+       */
+      const mesesCalculables = Array.from(
+        {
+          length: input.periodoMes - mesInicio + 1,
+        },
+        (_, index) => mesInicio + index,
+      );
+
+      /*
+       * Localizamos los C01 correspondientes a los meses
+       * cerrados del trimestre.
+       */
+      const controles = await this.c01ControlCarga.findMany({
+        where: {
+          C01CooperativaCodigo: input.cooperativaId,
+          C01PeriodoAnio: input.periodoAnio,
+          C01PeriodoMes: {
+            in: mesesCalculables,
+          },
+          C01Area: 'CREDITO',
+        },
+        select: {
+          C01Id: true,
+          C01PeriodoMes: true,
+        },
+      });
+
+      /*
+       * Creamos un mapa:
+       *
+       * mes -> control C01
+       */
+      const controlPorMes = new Map(
+        controles.map((control) => [control.C01PeriodoMes, control.C01Id]),
+      );
+
+      const oficinaCondition = input.oficina
+        ? Prisma.sql`AND r."RA01Sucursal" = ${input.oficina}`
+        : Prisma.empty;
+
+      /*
+       * Cada mes mantiene exactamente la misma lógica
+       * de Medición Mensual:
+       *
+       * C01 del mes
+       * +
+       * RA01FEntrega dentro del mismo mes
+       */
+      const resultadosMensuales = await Promise.all(
+        mesesCalculables.map(async (mes) => {
+          const controlId = controlPorMes.get(mes);
+
+          if (!controlId) {
+            return {
+              periodoMes: mes,
+              capitalColocado: null,
+              disponible: false,
+            };
+          }
+
+          const fechaInicio = `${input.periodoAnio}-${String(mes).padStart(2, '0')}-01`;
+
+          const fechaFin = this._getNextMonthDate(input.periodoAnio, mes);
+
+          const [row] = await this.$queryRaw<
+            {
+              capitalColocado: Prisma.Decimal | number | bigint | string;
+            }[]
+          >`
+            SELECT
+              COALESCE(
+                SUM(r."RA01CEntregada"),
+                0
+              ) AS "capitalColocado"
+
+            FROM "RA01Credito" r
+
+            WHERE
+              r."RA01ControlId" = ${controlId}
+
+              AND r."RA01FEntrega" >= ${fechaInicio}
+
+              AND r."RA01FEntrega" < ${fechaFin}
+
+              ${oficinaCondition};
+          `;
+
+          return {
+            periodoMes: mes,
+            capitalColocado: this._toNumber(row?.capitalColocado),
+            disponible: true,
+          };
+        }),
+      );
+
+      /*
+       * Construimos siempre los tres meses del trimestre.
+       *
+       * Los posteriores a periodoMes quedan como null,
+       * porque todavía no corresponden al período cerrado.
+       */
+      const meses: CreditoMedicionTrimestralMesOutput[] = Array.from(
+        {
+          length: mesFin - mesInicio + 1,
+        },
+        (_, index) => {
+          const periodoMes = mesInicio + index;
+
+          // Mes futuro respecto al período consultado.
+          if (periodoMes > input.periodoMes) {
+            return {
+              periodoMes,
+              capitalColocado: null,
+              disponible: false,
+            };
+          }
+
+          const resultado = resultadosMensuales.find(
+            (item) => item.periodoMes === periodoMes,
+          );
+
+          return {
+            periodoMes,
+            capitalColocado: resultado?.capitalColocado ?? null,
+
+            disponible: resultado?.disponible ?? false,
+          };
+        },
+      );
+
+      const capitalColocadoTrimestre = meses.reduce(
+        (total, mes) => total + (mes.capitalColocado ?? 0),
+        0,
+      );
+
+      const sucursal = input.oficina
+        ? await this.r11Sucursal.findFirst({
+            where: {
+              R11Coop_id: input.cooperativaId,
+
+              R11NumSuc: input.oficina,
+            },
+            select: {
+              R11Nom: true,
+            },
+          })
+        : null;
+
+      return {
+        oficinaNombre: input.oficina
+          ? (sucursal?.R11Nom ?? 'Sucursal desconocida')
+          : 'Global',
+
+        periodoMes: input.periodoMes,
+
+        periodoAnio: input.periodoAnio,
+
+        numeroTrimestre,
+
+        mesInicioTrimestre: mesInicio,
+
+        mesFinTrimestre: mesFin,
+
+        capitalColocadoTrimestre,
+
+        meses,
+      };
+    } catch (error) {
+      if (error instanceof RpcException) {
+        throw error;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Ocurrió un error al obtener la medición trimestral de crédito.';
+
+      this._logger.error(`Error en medición trimestral de crédito: ${message}`);
 
       throw new RpcException({
         message,
@@ -949,5 +1134,21 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     }
 
     return Number(value);
+  }
+
+  private _getQuarter(month: number): {
+    numeroTrimestre: number;
+    mesInicio: number;
+    mesFin: number;
+  } {
+    const numeroTrimestre = Math.ceil(month / 3);
+
+    const mesInicio = (numeroTrimestre - 1) * 3 + 1;
+
+    return {
+      numeroTrimestre,
+      mesInicio,
+      mesFin: mesInicio + 2,
+    };
   }
 }

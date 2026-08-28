@@ -5,6 +5,7 @@ import { CreditoService } from './credito.service';
 import { CreditoColocacionTotalInput } from './dto/inputs/credito-colocacion-total.input';
 import { CreditoMedicionAnualInput } from './dto/inputs/credito-medicion-anual.input';
 import { CreditoMedicionMensualInput } from './dto/inputs/credito-medicion-mensual.input';
+import { CreditoMedicionTrimestralInput } from './dto/inputs/credito-medicion-trimestral.input';
 
 @Controller()
 export class CreditoHandler {
@@ -27,5 +28,12 @@ export class CreditoHandler {
     @Payload() input: CreditoMedicionMensualInput,
   ) {
     return this._service.getMedicionMensual(input);
+  }
+
+  @MessagePattern('operaciones.credito.getMedicionTrimestral')
+  public getMedicionTrimestral(
+    @Payload() input: CreditoMedicionTrimestralInput,
+  ) {
+    return this._service.getMedicionTrimestral(input);
   }
 }
