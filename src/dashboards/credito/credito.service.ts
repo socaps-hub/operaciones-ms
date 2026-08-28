@@ -10,6 +10,8 @@ import { getMonthDateRange } from './utils/credito-date.util';
 import { getCreditoEvaluacionColumn } from './utils/credito-evaluacion-column.util';
 import { CreditoMedicionAnualInput } from './dto/inputs/credito-medicion-anual.input';
 import { CreditoMedicionAnualOutput } from './dto/outputs/credito-medicion-anual.output';
+import { CreditoMedicionMensualInput } from './dto/inputs/credito-medicion-mensual.input';
+import { CreditoMedicionMensualOutput } from './dto/outputs/credito-medicion-mensual.output';
 
 @Injectable()
 export class CreditoService extends PrismaClient implements OnModuleInit {
@@ -261,6 +263,212 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
           : 'Ocurrió un error al obtener la medición anual de crédito.';
 
       this._logger.error(`Error en medición anual de crédito: ${message}`);
+
+      throw new RpcException({
+        message,
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
+  }
+
+  public async getMedicionMensual(
+    input: CreditoMedicionMensualInput,
+  ): Promise<CreditoMedicionMensualOutput> {
+    try {
+      // Buscar en paralelo el corte de crédito y el control de metas.
+      const [controlCredito, controlMetas] = await Promise.all([
+        this.c01ControlCarga.findFirst({
+          where: {
+            C01CooperativaCodigo: input.cooperativaId,
+            C01PeriodoMes: input.periodoMes,
+            C01PeriodoAnio: input.periodoAnio,
+            C01Area: 'CREDITO',
+          },
+          select: {
+            C01Id: true,
+          },
+        }),
+
+        this.oP00ControlMetaColocacion.findUnique({
+          where: {
+            OP00CooperativaCodigo_OP00PeriodoAnio_OP00Area: {
+              OP00CooperativaCodigo: input.cooperativaId,
+              OP00PeriodoAnio: input.periodoAnio,
+              OP00Area: OP_META_AREA.CREDITO,
+            },
+          },
+          select: {
+            OP00Id: true,
+          },
+        }),
+      ]);
+
+      if (!controlCredito) {
+        throw new RpcException({
+          message:
+            `No existe una radiografía de crédito para ` +
+            `${input.periodoMes}/${input.periodoAnio}.`,
+          status: HttpStatus.NOT_FOUND,
+        });
+      }
+
+      if (!controlMetas) {
+        throw new RpcException({
+          message:
+            `No existen metas de crédito registradas para el año ` +
+            `${input.periodoAnio}.`,
+          status: HttpStatus.NOT_FOUND,
+        });
+      }
+
+      // Si no hay oficina seleccionada, la consulta representa toda la caja.
+      const oficinaConditionMeta = input.oficina
+        ? Prisma.sql`m."OP01SucursalNumero" = ${input.oficina}`
+        : Prisma.sql`TRUE`;
+
+      const oficinaConditionCredito = input.oficina
+        ? Prisma.sql`r."RA01Sucursal" = ${input.oficina}`
+        : Prisma.sql`TRUE`;
+
+      const fechaInicio =
+        `${input.periodoAnio}-${String(input.periodoMes).padStart(2, '0')}-01`;
+
+      const fechaFin = this._getNextMonthDate(
+        input.periodoAnio,
+        input.periodoMes,
+      );
+
+      const [
+        [metaRow],
+        [colocacionRow],
+        sucursal,
+      ] = await Promise.all([
+        // Meta correspondiente únicamente al mes seleccionado.
+        this.$queryRaw<
+          {
+            metaMes: Prisma.Decimal | number | bigint | string;
+          }[]
+        >`
+        SELECT
+          COALESCE(
+            SUM(m."OP01Meta"),
+            0
+          ) AS "metaMes"
+
+        FROM "OP01MetaColocacion" m
+
+        WHERE
+          m."OP01ControlId" = ${controlMetas.OP00Id}
+
+          AND m."OP01PeriodoMes" = ${input.periodoMes}
+
+          AND ${oficinaConditionMeta};
+      `,
+
+        // Colocación y número de préstamos exclusivamente del mes consultado.
+        this.$queryRaw<
+          {
+            realColocado:
+              | Prisma.Decimal
+              | number
+              | bigint
+              | string;
+
+            numeroPrestamos:
+              | number
+              | bigint;
+          }[]
+        >`
+        SELECT
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "realColocado",
+
+          COUNT(*) AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        WHERE
+          r."RA01ControlId" = ${controlCredito.C01Id}
+
+          AND r."RA01FEntrega" >= ${fechaInicio}
+
+          AND r."RA01FEntrega" < ${fechaFin}
+
+          AND ${oficinaConditionCredito};
+      `,
+
+        // Consultar el nombre solamente cuando se seleccionó una oficina.
+        input.oficina
+          ? this.r11Sucursal.findFirst({
+            where: {
+              R11Coop_id: input.cooperativaId,
+              R11NumSuc: input.oficina,
+            },
+            select: {
+              R11Nom: true,
+            },
+          })
+          : Promise.resolve(null),
+      ]);
+
+      const metaMes =
+        this._toNumber(metaRow?.metaMes);
+
+      const realColocado =
+        this._toNumber(colocacionRow?.realColocado);
+
+      const numeroPrestamos =
+        this._toNumber(colocacionRow?.numeroPrestamos);
+
+      const cumplimientoPorcentaje =
+        metaMes > 0
+          ? this._toPercentage(
+            realColocado,
+            metaMes,
+          )
+          : 0;
+
+      const faltante =
+        realColocado - metaMes;
+
+      return {
+        oficinaNombre:
+          input.oficina
+            ? sucursal?.R11Nom ?? 'Sucursal desconocida'
+            : 'Global',
+
+        periodoMes: input.periodoMes,
+        periodoAnio: input.periodoAnio,
+
+        metaMes,
+
+        realColocado,
+
+        cumplimientoPorcentaje,
+
+        faltante,
+
+        numeroPrestamos,
+
+        cumplioMeta:
+          metaMes > 0 &&
+          realColocado >= metaMes,
+      };
+    } catch (error) {
+      if (error instanceof RpcException) {
+        throw error;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Ocurrió un error al obtener la medición mensual de crédito.';
+
+      this._logger.error(
+        `Error en medición mensual de crédito: ${message}`,
+      );
 
       throw new RpcException({
         message,
