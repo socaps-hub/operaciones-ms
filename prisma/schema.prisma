@@ -679,6 +679,10 @@ model RA01Credito {
   control       C01ControlCarga @relation(fields: [RA01ControlId], references: [C01Id], onDelete: Cascade)
 
   A02MuestraCreditoSeleccion A02MuestraCreditoSeleccion[]
+
+  @@index([RA01ControlId])
+  @@index([RA01ControlId, RA01Sucursal])
+  @@index([RA01ControlId, RA01FEntrega])
 }
 
 // ======================================================

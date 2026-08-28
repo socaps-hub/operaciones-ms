@@ -1,10 +1,15 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { HttpStatus, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { RpcException } from '@nestjs/microservices';
+
+import { OP_META_AREA, Prisma, PrismaClient } from '@prisma/client';
+
 import { CreditoColocacionTotalInput } from './dto/inputs/credito-colocacion-total.input';
 import { CreditoColocacionTotalOutput } from './dto/outputs/credito-colocacion-total.output';
 import { CreditoInformeEnum } from './enums/credito-dashboard.enum';
 import { getMonthDateRange } from './utils/credito-date.util';
 import { getCreditoEvaluacionColumn } from './utils/credito-evaluacion-column.util';
+import { CreditoMedicionAnualInput } from './dto/inputs/credito-medicion-anual.input';
+import { CreditoMedicionAnualOutput } from './dto/outputs/credito-medicion-anual.output';
 
 @Injectable()
 export class CreditoService extends PrismaClient implements OnModuleInit {
@@ -15,6 +20,10 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     await this.$connect();
     this._logger.log('Database connected');
   }
+
+  //   ==================================
+  //   COLOCACIÓN TOTAL
+  //   ==================================
 
   async getColocacionTotalDashboard(
     input: CreditoColocacionTotalInput,
@@ -44,6 +53,225 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       mayorDemanda,
     };
   }
+
+  //   ==================================
+  //   CUMPLIMIENTO - METAS
+  //   ==================================
+
+  public async getMedicionAnual(
+    input: CreditoMedicionAnualInput,
+  ): Promise<CreditoMedicionAnualOutput> {
+    try {
+      // Buscar el control de metas de crédito para la cooperativa y año.
+      const controlMetas = await this.oP00ControlMetaColocacion.findUnique({
+        where: {
+          OP00CooperativaCodigo_OP00PeriodoAnio_OP00Area: {
+            OP00CooperativaCodigo: input.cooperativaId,
+            OP00PeriodoAnio: input.periodoAnio,
+            OP00Area: OP_META_AREA.CREDITO,
+          },
+        },
+        select: {
+          OP00Id: true,
+        },
+      });
+
+      if (!controlMetas) {
+        throw new RpcException({
+          message:
+            `No existen metas de crédito registradas para el año ` +
+            `${input.periodoAnio}.`,
+          status: HttpStatus.NOT_FOUND,
+        });
+      }
+
+      // Si no se seleccionó oficina, se consideran todas las sucursales.
+      const oficinaConditionMetas = input.oficina
+        ? Prisma.sql`m."OP01SucursalNumero" = ${input.oficina}`
+        : Prisma.sql`TRUE`;
+
+      const oficinaConditionCredito = input.oficina
+        ? Prisma.sql`r."RA01Sucursal" = ${input.oficina}`
+        : Prisma.sql`TRUE`;
+
+      const [[metasRow], [colocacionRow], sucursal] = await Promise.all([
+        // Meta anual y meta acumulada esperada hasta el mes seleccionado.
+        this.$queryRaw<
+          {
+            metaAnual: Prisma.Decimal;
+            debenLlevar: Prisma.Decimal;
+          }[]
+        >`
+        SELECT
+          COALESCE(
+            SUM(m."OP01Meta"),
+            0
+          ) AS "metaAnual",
+
+          COALESCE(
+            SUM(m."OP01Meta") FILTER (
+              WHERE m."OP01PeriodoMes" <= ${input.periodoMes}
+            ),
+            0
+          ) AS "debenLlevar"
+
+        FROM "OP01MetaColocacion" m
+
+        WHERE
+          m."OP01ControlId" = ${controlMetas.OP00Id}
+          AND ${oficinaConditionMetas};
+      `,
+
+        // Sumar la colocación mensual de cada corte desde enero
+        // hasta el mes seleccionado.
+        this.$queryRaw<
+          {
+            colocacionAcumulada: Prisma.Decimal | bigint | number | string;
+            controlesEncontrados: bigint | number;
+          }[]
+        >`
+        SELECT
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "colocacionAcumulada",
+
+          COUNT(
+            DISTINCT c."C01Id"
+          ) AS "controlesEncontrados"
+
+        FROM "C01ControlCarga" c
+
+        INNER JOIN "RA01Credito" r
+          ON r."RA01ControlId" = c."C01Id"
+
+        WHERE
+          c."C01CooperativaCodigo" = ${input.cooperativaId}::uuid
+
+          AND c."C01PeriodoAnio" = ${input.periodoAnio}
+
+          AND c."C01PeriodoMes"
+            BETWEEN 1 AND ${input.periodoMes}
+
+          AND c."C01Area" = 'CREDITO'
+
+          -- Cada corte aporta únicamente la colocación
+          -- correspondiente a su propio mes.
+          AND r."RA01FEntrega" >=
+            TO_CHAR(
+              MAKE_DATE(
+                c."C01PeriodoAnio",
+                c."C01PeriodoMes",
+                1
+              ),
+              'YYYY-MM-DD'
+            )
+
+          AND r."RA01FEntrega" <
+            TO_CHAR(
+              (
+                MAKE_DATE(
+                  c."C01PeriodoAnio",
+                  c."C01PeriodoMes",
+                  1
+                )
+                + INTERVAL '1 month'
+              ),
+              'YYYY-MM-DD'
+            )
+
+          AND ${oficinaConditionCredito};
+      `,
+
+        // Obtener el nombre de la sucursal cuando existe filtro.
+        input.oficina
+          ? this.r11Sucursal.findFirst({
+              where: {
+                R11Coop_id: input.cooperativaId,
+                R11NumSuc: input.oficina,
+              },
+              select: {
+                R11Nom: true,
+              },
+            })
+          : Promise.resolve(null),
+      ]);
+
+      const controlesEncontrados = this._toNumber(
+        colocacionRow?.controlesEncontrados,
+      );
+
+      if (controlesEncontrados === 0) {
+        throw new RpcException({
+          message:
+            `No existen radiografías de crédito registradas entre enero y ` +
+            `el mes ${input.periodoMes} del ${input.periodoAnio}.`,
+          status: HttpStatus.NOT_FOUND,
+        });
+      }
+
+      const metaAnual = this._toNumber(metasRow?.metaAnual);
+
+      const debenLlevar = this._toNumber(metasRow?.debenLlevar);
+
+      const colocacionAcumulada = this._toNumber(
+        colocacionRow?.colocacionAcumulada,
+      );
+
+      const colocacionPorcentaje =
+        metaAnual > 0 ? this._toPercentage(colocacionAcumulada, metaAnual) : 0;
+
+      const debenLlevarPorcentaje =
+        metaAnual > 0 ? this._toPercentage(debenLlevar, metaAnual) : 0;
+
+      // Este porcentaje será utilizado por el semáforo en frontend.
+      const cumplimientoEsperadoPorcentaje =
+        debenLlevar > 0
+          ? this._toPercentage(colocacionAcumulada, debenLlevar)
+          : 0;
+
+      return {
+        oficinaNombre: input.oficina
+          ? (sucursal?.R11Nom ?? 'Sucursal desconocida')
+          : 'Global',
+
+        periodoMes: input.periodoMes,
+        periodoAnio: input.periodoAnio,
+
+        metaAnual,
+
+        colocacionAcumulada,
+        colocacionPorcentaje,
+
+        debenLlevar,
+        debenLlevarPorcentaje,
+
+        cumplimientoEsperadoPorcentaje,
+
+        deficit: colocacionAcumulada - debenLlevar,
+      };
+    } catch (error) {
+      if (error instanceof RpcException) {
+        throw error;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Ocurrió un error al obtener la medición anual de crédito.';
+
+      this._logger.error(`Error en medición anual de crédito: ${message}`);
+
+      throw new RpcException({
+        message,
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
+  }
+
+  //   ==================================
+  //   HELPERS
+  //   ==================================
 
   private async _getHeader(input: CreditoColocacionTotalInput) {
     const baseWhere = this._buildBaseWhere(input);
@@ -474,5 +702,44 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       AND TO_DATE(r."RA01FEntrega", 'YYYY-MM-DD') >= MAKE_DATE(c."C01PeriodoAnio", c."C01PeriodoMes", 1)
       AND TO_DATE(r."RA01FEntrega", 'YYYY-MM-DD') <  MAKE_DATE(c."C01PeriodoAnio", c."C01PeriodoMes", 1) + INTERVAL '1 month'
     `;
+  }
+
+  /**
+   * Obtiene el primer día del mes siguiente en formato YYYY-MM-DD.
+   */
+  private _getNextMonthDate(year: number, month: number): string {
+    if (month === 12) {
+      return `${year + 1}-01-01`;
+    }
+
+    return `${year}-${String(month + 1).padStart(2, '0')}-01`;
+  }
+
+  /**
+   * Calcula un porcentaje y lo redondea a dos decimales.
+   */
+  private _toPercentage(value: number, total: number): number {
+    if (total <= 0) {
+      return 0;
+    }
+
+    return Number(((value / total) * 100).toFixed(2));
+  }
+
+  /**
+   * Convierte valores numéricos provenientes de Prisma/PostgreSQL a number.
+   */
+  private _toNumber(
+    value: Prisma.Decimal | bigint | number | string | null | undefined,
+  ): number {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+
+    if (value instanceof Prisma.Decimal) {
+      return value.toNumber();
+    }
+
+    return Number(value);
   }
 }
