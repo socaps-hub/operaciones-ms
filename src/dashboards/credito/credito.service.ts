@@ -22,6 +22,8 @@ import {
   CreditoFortalezaEnfoque,
 } from './dto/inputs/credito-fortaleza-colocacion.input';
 import { CreditoFortalezaColocacionOutput } from './dto/outputs/credito-fortaleza-colocacion.output';
+import { CreditoPosicionLogroMetaInput } from './dto/inputs/credito-posicion-logro-meta.input';
+import { CreditoPosicionLogroMetaOutput } from './dto/outputs/credito-posicion-logro-meta.output';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -784,6 +786,168 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     };
   }
 
+  public async getPosicionLogroMeta(
+    input: CreditoPosicionLogroMetaInput,
+  ): Promise<CreditoPosicionLogroMetaOutput> {
+    const fechaInicio = `${input.periodoAnio}-${String(input.periodoMes).padStart(2, '0')}-01`;
+
+    const fechaFin = this._getNextMonthDate(
+      input.periodoAnio,
+      input.periodoMes,
+    );
+
+    const [controlRadiografia, metas, sucursales] = await Promise.all([
+      this.c01ControlCarga.findFirst({
+        where: {
+          C01CooperativaCodigo: input.cooperativaId,
+          C01PeriodoMes: input.periodoMes,
+          C01PeriodoAnio: input.periodoAnio,
+          C01Area: 'CREDITO',
+        },
+        select: {
+          C01Id: true,
+        },
+      }),
+
+      this.oP01MetaColocacion.findMany({
+        where: {
+          control: {
+            OP00CooperativaCodigo: input.cooperativaId,
+            OP00Area: 'CREDITO',
+            OP00PeriodoAnio: input.periodoAnio,
+          },
+          OP01PeriodoMes: input.periodoMes,
+        },
+        select: {
+          OP01SucursalNumero: true,
+          OP01Meta: true,
+        },
+      }),
+
+      this.r11Sucursal.findMany({
+        where: {
+          R11Coop_id: input.cooperativaId,
+        },
+        select: {
+          R11NumSuc: true,
+          R11Nom: true,
+        },
+      }),
+    ]);
+
+    const colocacionPorSucursal = controlRadiografia
+      ? await this.$queryRaw<
+          {
+            oficinaNumero: string | null;
+            colocacionReal: Prisma.Decimal | number | bigint | string;
+          }[]
+        >`
+        SELECT
+          r."RA01Sucursal" AS "oficinaNumero",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "colocacionReal"
+
+        FROM "RA01Credito" r
+
+        WHERE
+          r."RA01ControlId" = ${controlRadiografia.C01Id}
+
+          AND r."RA01FEntrega" >= ${fechaInicio}
+
+          AND r."RA01FEntrega" < ${fechaFin}
+
+        GROUP BY
+          r."RA01Sucursal";
+      `
+      : [];
+
+    const colocacionMap = new Map<string, number>();
+
+    for (const row of colocacionPorSucursal) {
+      if (!row.oficinaNumero) {
+        continue;
+      }
+
+      const sucursalNumero = this._normalizeSucursal(row.oficinaNumero);
+
+      if (!sucursalNumero) {
+        continue;
+      }
+
+      colocacionMap.set(sucursalNumero, this._toNumber(row.colocacionReal));
+    }
+
+    const metaMap = new Map<string, number>();
+
+    for (const meta of metas) {
+      const sucursalNumero = this._normalizeSucursal(meta.OP01SucursalNumero);
+
+      if (!sucursalNumero) {
+        continue;
+      }
+
+      metaMap.set(sucursalNumero, this._toNumber(meta.OP01Meta));
+    }
+
+    const oficinas = sucursales
+      .sort((a, b) => Number(a.R11NumSuc) - Number(b.R11NumSuc))
+      .map((sucursal) => {
+        const sucursalNumero = this._normalizeSucursal(sucursal.R11NumSuc);
+
+        const metaMensual = metaMap.get(sucursalNumero) ?? 0;
+
+        const colocacionReal = colocacionMap.get(sucursalNumero) ?? 0;
+
+        const cumplimientoPorcentaje =
+          metaMensual > 0 ? (colocacionReal / metaMensual) * 100 : 0;
+
+        return {
+          oficinaNumero: sucursalNumero,
+          oficinaNombre: sucursal.R11Nom,
+          metaMensual,
+          colocacionReal,
+          cumplimientoPorcentaje,
+          cumplioMeta: metaMensual > 0 && colocacionReal >= metaMensual,
+        };
+    });
+
+    const totalMetaMensual = oficinas.reduce(
+      (total, oficina) => total + oficina.metaMensual,
+      0,
+    );
+
+    const totalColocacionReal = oficinas.reduce(
+      (total, oficina) => total + oficina.colocacionReal,
+      0,
+    );
+
+    const totalCumplimientoPorcentaje =
+      totalMetaMensual > 0 ? (totalColocacionReal / totalMetaMensual) * 100 : 0;
+
+    oficinas.push({
+      oficinaNumero: 'TOTAL',
+      oficinaNombre: 'Total',
+
+      metaMensual: totalMetaMensual,
+
+      colocacionReal: totalColocacionReal,
+
+      cumplimientoPorcentaje: totalCumplimientoPorcentaje,
+
+      cumplioMeta:
+        totalMetaMensual > 0 && totalColocacionReal >= totalMetaMensual,
+    });
+
+    return {
+      periodoMes: input.periodoMes,
+      periodoAnio: input.periodoAnio,
+      oficinas,
+    };
+  }
+
   //   ==================================
   //   HELPERS
   //   ==================================
@@ -1272,6 +1436,10 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       mesInicio,
       mesFin: mesInicio + 2,
     };
+  }
+
+  private _normalizeSucursal(value: string): string {
+    return value.trim();
   }
 
   private async _getFortalezaProductos(params: {
