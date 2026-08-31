@@ -15,6 +15,31 @@ import { CreditoMedicionMensualOutput } from './dto/outputs/credito-medicion-men
 import { CreditoMedicionTrimestralInput } from './dto/inputs/credito-medicion-trimestral.input';
 import { CreditoMedicionTrimestralOutput } from './dto/outputs/credito-medicion-trimestral.output';
 import { CreditoMedicionTrimestralMesOutput } from './dto/outputs/credito-medicion-trimestral-mes.output';
+import { CreditoFortalezaProductoOutput } from './dto/outputs/credito-fortaleza-producto.output';
+import { CreditoFortalezaGrupoOutput } from './dto/outputs/credito-fortaleza-grupo.output';
+import {
+  CreditoFortalezaColocacionInput,
+  CreditoFortalezaEnfoque,
+} from './dto/inputs/credito-fortaleza-colocacion.input';
+import { CreditoFortalezaColocacionOutput } from './dto/outputs/credito-fortaleza-colocacion.output';
+
+type FortalezaProductoRow = {
+  productoNombre: string;
+  colocacion: number;
+  prestamos: number;
+};
+
+type FortalezaResultado = {
+  totalColocacion: number;
+  totalPrestamos: number;
+
+  mayores: CreditoFortalezaProductoOutput[];
+  menores: CreditoFortalezaProductoOutput[];
+
+  totalMayores: CreditoFortalezaGrupoOutput;
+  totalMenores: CreditoFortalezaGrupoOutput;
+  resto: CreditoFortalezaGrupoOutput;
+};
 
 @Injectable()
 export class CreditoService extends PrismaClient implements OnModuleInit {
@@ -662,6 +687,103 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     }
   }
 
+  public async getFortalezaColocacion(
+    input: CreditoFortalezaColocacionInput,
+  ): Promise<CreditoFortalezaColocacionOutput> {
+    const oficina = input.oficina?.trim() || undefined;
+
+    const [productosMensual, productosAcumulado] = await Promise.all([
+      this._getFortalezaProductos({
+        cooperativaId: input.cooperativaId,
+
+        periodoMes: input.periodoMes,
+
+        periodoAnio: input.periodoAnio,
+
+        oficina,
+
+        enfoque: CreditoFortalezaEnfoque.MENSUAL,
+      }),
+
+      this._getFortalezaProductos({
+        cooperativaId: input.cooperativaId,
+
+        periodoMes: input.periodoMes,
+
+        periodoAnio: input.periodoAnio,
+
+        oficina,
+
+        enfoque: CreditoFortalezaEnfoque.ACUMULADO,
+      }),
+    ]);
+
+    const mensual = this._buildFortalezaResultado(productosMensual);
+
+    const acumulado = this._buildFortalezaResultado(productosAcumulado);
+
+    const seleccionado =
+      input.enfoque === CreditoFortalezaEnfoque.MENSUAL ? mensual : acumulado;
+
+    let oficinaNombre = 'GLOBAL';
+
+    if (oficina !== undefined) {
+      const sucursal = await this.r11Sucursal.findFirst({
+        where: {
+          R11Coop_id: input.cooperativaId,
+
+          R11NumSuc: input.oficina,
+        },
+
+        select: {
+          R11Nom: true,
+        },
+      });
+
+      oficinaNombre = sucursal?.R11Nom ?? `Sucursal ${input.oficina}`;
+    }
+
+    return {
+      oficinaNombre,
+
+      periodoMes: input.periodoMes,
+
+      periodoAnio: input.periodoAnio,
+
+      enfoque: input.enfoque,
+
+      totalColocacion: seleccionado.totalColocacion,
+
+      totalPrestamos: seleccionado.totalPrestamos,
+
+      mayores: seleccionado.mayores,
+
+      menores: seleccionado.menores,
+
+      totalMayores: seleccionado.totalMayores,
+
+      totalMenores: seleccionado.totalMenores,
+
+      resto: seleccionado.resto,
+
+      resumenAcumulado: {
+        totalMayores: acumulado.totalMayores,
+
+        totalMenores: acumulado.totalMenores,
+
+        resto: acumulado.resto,
+      },
+
+      resumenMensual: {
+        totalMayores: mensual.totalMayores,
+
+        totalMenores: mensual.totalMenores,
+
+        resto: mensual.resto,
+      },
+    };
+  }
+
   //   ==================================
   //   HELPERS
   //   ==================================
@@ -1149,6 +1271,243 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       numeroTrimestre,
       mesInicio,
       mesFin: mesInicio + 2,
+    };
+  }
+
+  private async _getFortalezaProductos(params: {
+    cooperativaId: string;
+    periodoMes: number;
+    periodoAnio: number;
+    oficina?: string;
+    enfoque: CreditoFortalezaEnfoque;
+  }): Promise<FortalezaProductoRow[]> {
+    const { cooperativaId, periodoMes, periodoAnio, oficina, enfoque } = params;
+
+    const meses =
+      enfoque === CreditoFortalezaEnfoque.MENSUAL
+        ? [periodoMes]
+        : Array.from({ length: periodoMes }, (_, index) => index + 1);
+
+    const controles = await this.c01ControlCarga.findMany({
+      where: {
+        C01CooperativaCodigo: cooperativaId,
+        C01PeriodoAnio: periodoAnio,
+        C01PeriodoMes: {
+          in: meses,
+        },
+        C01Area: 'CREDITO',
+      },
+      select: {
+        C01Id: true,
+        C01PeriodoMes: true,
+      },
+    });
+
+    const controlPorMes = new Map<number, number>();
+
+    for (const control of controles) {
+      controlPorMes.set(control.C01PeriodoMes, control.C01Id);
+    }
+
+    const oficinaCondition =
+      oficina !== undefined
+        ? Prisma.sql`
+          AND r."RA01Sucursal" = ${oficina}
+        `
+        : Prisma.empty;
+
+    const resultados = await Promise.all(
+      meses.map(async (mes) => {
+        const controlId = controlPorMes.get(mes);
+
+        if (!controlId) {
+          return [] as FortalezaProductoRow[];
+        }
+
+        const fechaInicio = `${periodoAnio}-${String(mes).padStart(2, '0')}-01`;
+
+        const fechaFin = this._getNextMonthDate(periodoAnio, mes);
+
+        const rows = await this.$queryRaw<
+          {
+            productoNombre: string | null;
+            colocacion: Prisma.Decimal | number | bigint | string;
+            prestamos: number | bigint | string;
+          }[]
+        >`
+        SELECT
+          r."RA01Categoria" AS "productoNombre",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "colocacion",
+
+          COUNT(*) AS "prestamos"
+
+        FROM "RA01Credito" r
+
+        WHERE
+          r."RA01ControlId" = ${controlId}
+
+          AND r."RA01FEntrega" >= ${fechaInicio}
+
+          AND r."RA01FEntrega" < ${fechaFin}
+
+          ${oficinaCondition}
+
+        GROUP BY
+          r."RA01Categoria";
+      `;
+
+        return rows.map((row) => ({
+          productoNombre: row.productoNombre?.trim() || 'Sin categoría',
+
+          colocacion: this._toNumber(row.colocacion),
+
+          prestamos: this._toNumber(row.prestamos),
+        }));
+      }),
+    );
+
+    const acumuladoPorProducto = new Map<string, FortalezaProductoRow>();
+
+    for (const grupoMensual of resultados) {
+      for (const row of grupoMensual) {
+        const existente = acumuladoPorProducto.get(row.productoNombre);
+
+        if (existente) {
+          existente.colocacion += row.colocacion;
+
+          existente.prestamos += row.prestamos;
+        } else {
+          acumuladoPorProducto.set(row.productoNombre, {
+            ...row,
+          });
+        }
+      }
+    }
+
+    return [...acumuladoPorProducto.values()];
+  }
+
+  private _buildFortalezaResultado(
+    productos: FortalezaProductoRow[],
+  ): FortalezaResultado {
+    const totalColocacion = productos.reduce(
+      (total, producto) => total + producto.colocacion,
+      0,
+    );
+
+    const totalPrestamos = productos.reduce(
+      (total, producto) => total + producto.prestamos,
+      0,
+    );
+
+    const getPorcentaje = (colocacion: number): number => {
+      if (totalColocacion <= 0) {
+        return 0;
+      }
+
+      return (colocacion / totalColocacion) * 100;
+    };
+
+    const productosOrdenados = [...productos].sort(
+      (a, b) => b.colocacion - a.colocacion,
+    );
+
+    const mayoresBase = productosOrdenados.slice(0, 5);
+
+    const nombresMayores = new Set(
+      mayoresBase.map((producto) => producto.productoNombre),
+    );
+
+    const candidatosMenores = productos
+      .filter((producto) => !nombresMayores.has(producto.productoNombre))
+      .sort((a, b) => a.colocacion - b.colocacion);
+
+    const menoresBase = candidatosMenores.slice(0, 5);
+
+    const mayores: CreditoFortalezaProductoOutput[] = mayoresBase.map(
+      (producto) => ({
+        productoNombre: producto.productoNombre,
+
+        colocacion: producto.colocacion,
+
+        prestamos: producto.prestamos,
+
+        porcentaje: getPorcentaje(producto.colocacion),
+      }),
+    );
+
+    const menores: CreditoFortalezaProductoOutput[] = menoresBase.map(
+      (producto) => ({
+        productoNombre: producto.productoNombre,
+
+        colocacion: producto.colocacion,
+
+        prestamos: producto.prestamos,
+
+        porcentaje: getPorcentaje(producto.colocacion),
+      }),
+    );
+
+    const totalMayoresColocacion = mayoresBase.reduce(
+      (total, producto) => total + producto.colocacion,
+      0,
+    );
+
+    const totalMayoresPrestamos = mayoresBase.reduce(
+      (total, producto) => total + producto.prestamos,
+      0,
+    );
+
+    const totalMenoresColocacion = menoresBase.reduce(
+      (total, producto) => total + producto.colocacion,
+      0,
+    );
+
+    const totalMenoresPrestamos = menoresBase.reduce(
+      (total, producto) => total + producto.prestamos,
+      0,
+    );
+
+    const restoColocacion =
+      totalColocacion - totalMayoresColocacion - totalMenoresColocacion;
+
+    const restoPrestamos =
+      totalPrestamos - totalMayoresPrestamos - totalMenoresPrestamos;
+
+    return {
+      totalColocacion,
+      totalPrestamos,
+
+      mayores,
+      menores,
+
+      totalMayores: {
+        colocacion: totalMayoresColocacion,
+
+        prestamos: totalMayoresPrestamos,
+
+        porcentaje: getPorcentaje(totalMayoresColocacion),
+      },
+
+      totalMenores: {
+        colocacion: totalMenoresColocacion,
+
+        prestamos: totalMenoresPrestamos,
+
+        porcentaje: getPorcentaje(totalMenoresColocacion),
+      },
+
+      resto: {
+        colocacion: restoColocacion,
+
+        prestamos: restoPrestamos,
+
+        porcentaje: getPorcentaje(restoColocacion),
+      },
     };
   }
 }
