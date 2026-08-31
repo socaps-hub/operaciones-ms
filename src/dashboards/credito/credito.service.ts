@@ -24,6 +24,11 @@ import {
 import { CreditoFortalezaColocacionOutput } from './dto/outputs/credito-fortaleza-colocacion.output';
 import { CreditoPosicionLogroMetaInput } from './dto/inputs/credito-posicion-logro-meta.input';
 import { CreditoPosicionLogroMetaOutput } from './dto/outputs/credito-posicion-logro-meta.output';
+import {
+  CreditoCumplimientoMensualColocacionMesOutput,
+  CreditoCumplimientoMensualColocacionOutput,
+} from './dto/outputs/credito-cumplimiento-mensual-colocacion.output';
+import { CreditoCumplimientoMensualColocacionInput } from './dto/inputs/credito-cumplimiento-mensual-colocacion.input';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -945,6 +950,192 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       periodoMes: input.periodoMes,
       periodoAnio: input.periodoAnio,
       oficinas,
+    };
+  }
+
+  public async getCumplimientoMensualColocacion(
+    input: CreditoCumplimientoMensualColocacionInput,
+  ): Promise<CreditoCumplimientoMensualColocacionOutput> {
+    const oficina =
+      input.oficina?.trim() || undefined;
+
+    const [metas, sucursal] = await Promise.all([
+      this.oP01MetaColocacion.findMany({
+        where: {
+          control: {
+            OP00CooperativaCodigo: input.cooperativaId,
+            OP00Area: 'CREDITO',
+            OP00PeriodoAnio: input.periodoAnio,
+          },
+
+          ...(oficina
+            ? {
+                OP01SucursalNumero: oficina,
+              }
+            : {}),
+        },
+
+        select: {
+          OP01PeriodoMes: true,
+          OP01Meta: true,
+        },
+      }),
+
+      oficina
+        ? this.r11Sucursal.findFirst({
+            where: {
+              R11Coop_id: input.cooperativaId,
+              R11NumSuc: oficina,
+            },
+
+            select: {
+              R11NumSuc: true,
+              R11Nom: true,
+            },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const metaMap =
+      new Map<number, number>();
+
+    for (const meta of metas) {
+      const actual =
+        metaMap.get(
+          meta.OP01PeriodoMes,
+        ) ?? 0;
+
+      metaMap.set(
+        meta.OP01PeriodoMes,
+        actual +
+        this._toNumber(
+          meta.OP01Meta,
+        ),
+      );
+    }
+
+    const colocacionRows = await this.$queryRaw<
+      {
+        periodoMes: number;
+        colocacion: Prisma.Decimal | number | bigint | string;
+      }[]
+    >`
+        SELECT
+          c."C01PeriodoMes" AS "periodoMes",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "colocacion"
+
+        FROM "C01ControlCarga" c
+
+               LEFT JOIN "RA01Credito" r
+                         ON r."RA01ControlId" = c."C01Id"
+
+          ${
+            oficina
+              ? Prisma.sql`
+              AND r."RA01Sucursal" = ${oficina}
+            `
+              : Prisma.empty
+          }
+
+      AND TO_DATE(
+        r."RA01FEntrega",
+        'YYYY-MM-DD'
+      ) >= MAKE_DATE(
+          ${input.periodoAnio}::int,
+          c."C01PeriodoMes",
+          1
+          )
+
+          AND TO_DATE(
+          r."RA01FEntrega",
+          'YYYY-MM-DD'
+          ) < (
+          MAKE_DATE(
+          ${input.periodoAnio}::int,
+          c."C01PeriodoMes",
+          1
+          )
+          + INTERVAL '1 month'
+          )
+
+        WHERE
+          c."C01CooperativaCodigo" =
+          ${input.cooperativaId}::uuid
+
+          AND c."C01PeriodoAnio" =
+          ${input.periodoAnio}
+
+          AND c."C01PeriodoMes" <=
+          ${input.periodoMes}
+
+          AND c."C01Area" =
+          'CREDITO'
+
+        GROUP BY
+          c."C01PeriodoMes"
+
+        ORDER BY
+          c."C01PeriodoMes";
+      `;
+
+    const colocacionMap =
+      new Map<number, number>();
+
+    for (const row of colocacionRows) {
+      colocacionMap.set(
+        Number(row.periodoMes),
+        this._toNumber(
+          row.colocacion,
+        ),
+      );
+    }
+
+    const meses: CreditoCumplimientoMensualColocacionMesOutput[] = Array.from(
+      { length: 12 },
+      (_, index) => {
+        const periodoMes = index + 1;
+
+        const esPeriodoTranscurrido = periodoMes <= input.periodoMes;
+
+        const tieneRadiografia = colocacionMap.has(periodoMes);
+
+        const disponible = esPeriodoTranscurrido && tieneRadiografia;
+
+        return {
+          periodoMes,
+
+          meta: metaMap.get(periodoMes) ?? 0,
+
+          colocacion: disponible ? colocacionMap.get(periodoMes)! : null,
+
+          disponible,
+        };
+      },
+    );
+
+    return {
+      oficinaNumero:
+        oficina ?? null,
+
+      oficinaNombre:
+        oficina
+          ? (
+            sucursal?.R11Nom ??
+            oficina
+          )
+          : 'Global',
+
+      periodoMes:
+      input.periodoMes,
+
+      periodoAnio:
+      input.periodoAnio,
+
+      meses,
     };
   }
 

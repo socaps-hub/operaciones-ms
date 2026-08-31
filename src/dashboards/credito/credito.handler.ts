@@ -9,6 +9,10 @@ import { CreditoMedicionTrimestralInput } from './dto/inputs/credito-medicion-tr
 import { CreditoFortalezaColocacionInput } from './dto/inputs/credito-fortaleza-colocacion.input';
 import { CreditoPosicionLogroMetaOutput } from './dto/outputs/credito-posicion-logro-meta.output';
 import { CreditoPosicionLogroMetaInput } from './dto/inputs/credito-posicion-logro-meta.input';
+import { CreditoCumplimientoMensualColocacionInput } from './dto/inputs/credito-cumplimiento-mensual-colocacion.input';
+import {
+  CreditoCumplimientoMensualColocacionOutput
+} from './dto/outputs/credito-cumplimiento-mensual-colocacion.output';
 
 @Controller()
 export class CreditoHandler {
@@ -51,5 +55,13 @@ export class CreditoHandler {
     input: CreditoPosicionLogroMetaInput,
   ): Promise<CreditoPosicionLogroMetaOutput> {
     return this._service.getPosicionLogroMeta(input);
+  }
+
+  @MessagePattern('operaciones.credito.getCumplimientoMensualColocacion')
+  public async getCumplimientoMensualColocacion(
+    @Payload()
+    input: CreditoCumplimientoMensualColocacionInput,
+  ): Promise<CreditoCumplimientoMensualColocacionOutput> {
+    return this._service.getCumplimientoMensualColocacion(input);
   }
 }
