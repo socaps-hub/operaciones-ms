@@ -13,6 +13,8 @@ import { CreditoCumplimientoMensualColocacionInput } from './dto/inputs/credito-
 import {
   CreditoCumplimientoMensualColocacionOutput
 } from './dto/outputs/credito-cumplimiento-mensual-colocacion.output';
+import { CreditoComportamientoProductoInput } from './dto/inputs/credito-comportamiento-producto.input';
+import { CreditoComportamientoProductoOutput } from './dto/outputs/credito-comportamiento-producto.output';
 
 @Controller()
 export class CreditoHandler {
@@ -63,5 +65,13 @@ export class CreditoHandler {
     input: CreditoCumplimientoMensualColocacionInput,
   ): Promise<CreditoCumplimientoMensualColocacionOutput> {
     return this._service.getCumplimientoMensualColocacion(input);
+  }
+
+  @MessagePattern('operaciones.credito.getComportamientoProducto')
+  public async getComportamientoProducto(
+    @Payload()
+    input: CreditoComportamientoProductoInput,
+  ): Promise<CreditoComportamientoProductoOutput> {
+    return this._service.getComportamientoProducto(input);
   }
 }

@@ -29,6 +29,11 @@ import {
   CreditoCumplimientoMensualColocacionOutput,
 } from './dto/outputs/credito-cumplimiento-mensual-colocacion.output';
 import { CreditoCumplimientoMensualColocacionInput } from './dto/inputs/credito-cumplimiento-mensual-colocacion.input';
+import {
+  CreditoComportamientoProductoExtremoOutput,
+  CreditoComportamientoProductoMesOutput, CreditoComportamientoProductoOutput,
+} from './dto/outputs/credito-comportamiento-producto.output';
+import { CreditoComportamientoProductoInput } from './dto/inputs/credito-comportamiento-producto.input';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -917,7 +922,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
           cumplimientoPorcentaje,
           cumplioMeta: metaMensual > 0 && colocacionReal >= metaMensual,
         };
-    });
+      });
 
     const totalMetaMensual = oficinas.reduce(
       (total, oficina) => total + oficina.metaMensual,
@@ -956,8 +961,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
   public async getCumplimientoMensualColocacion(
     input: CreditoCumplimientoMensualColocacionInput,
   ): Promise<CreditoCumplimientoMensualColocacionOutput> {
-    const oficina =
-      input.oficina?.trim() || undefined;
+    const oficina = input.oficina?.trim() || undefined;
 
     const [metas, sucursal] = await Promise.all([
       this.oP01MetaColocacion.findMany({
@@ -996,22 +1000,12 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         : Promise.resolve(null),
     ]);
 
-    const metaMap =
-      new Map<number, number>();
+    const metaMap = new Map<number, number>();
 
     for (const meta of metas) {
-      const actual =
-        metaMap.get(
-          meta.OP01PeriodoMes,
-        ) ?? 0;
+      const actual = metaMap.get(meta.OP01PeriodoMes) ?? 0;
 
-      metaMap.set(
-        meta.OP01PeriodoMes,
-        actual +
-        this._toNumber(
-          meta.OP01Meta,
-        ),
-      );
+      metaMap.set(meta.OP01PeriodoMes, actual + this._toNumber(meta.OP01Meta));
     }
 
     const colocacionRows = await this.$queryRaw<
@@ -1082,16 +1076,10 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
           c."C01PeriodoMes";
       `;
 
-    const colocacionMap =
-      new Map<number, number>();
+    const colocacionMap = new Map<number, number>();
 
     for (const row of colocacionRows) {
-      colocacionMap.set(
-        Number(row.periodoMes),
-        this._toNumber(
-          row.colocacion,
-        ),
-      );
+      colocacionMap.set(Number(row.periodoMes), this._toNumber(row.colocacion));
     }
 
     const meses: CreditoCumplimientoMensualColocacionMesOutput[] = Array.from(
@@ -1118,24 +1106,172 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     );
 
     return {
-      oficinaNumero:
-        oficina ?? null,
+      oficinaNumero: oficina ?? null,
 
-      oficinaNombre:
-        oficina
-          ? (
-            sucursal?.R11Nom ??
-            oficina
-          )
-          : 'Global',
+      oficinaNombre: oficina ? (sucursal?.R11Nom ?? oficina) : 'Global',
 
-      periodoMes:
-      input.periodoMes,
+      periodoMes: input.periodoMes,
 
-      periodoAnio:
-      input.periodoAnio,
+      periodoAnio: input.periodoAnio,
 
       meses,
+    };
+  }
+
+  public async getComportamientoProducto(
+    input: CreditoComportamientoProductoInput,
+  ): Promise<CreditoComportamientoProductoOutput> {
+    const oficina = input.oficina?.trim() || undefined;
+
+    const producto = input.producto?.trim() || undefined;
+
+    const [sucursal, colocacionRows] = await Promise.all([
+      oficina
+        ? this.r11Sucursal.findFirst({
+            where: {
+              R11Coop_id: input.cooperativaId,
+
+              R11NumSuc: oficina,
+            },
+
+            select: {
+              R11Nom: true,
+            },
+          })
+        : Promise.resolve(null),
+
+      this.$queryRaw<
+        {
+          periodoMes: number;
+          colocacion: Prisma.Decimal | number | bigint | string;
+        }[]
+      >`
+        SELECT
+          c."C01PeriodoMes" AS "periodoMes",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "colocacion"
+
+        FROM "C01ControlCarga" c
+
+               LEFT JOIN "RA01Credito" r
+                         ON r."RA01ControlId" = c."C01Id"
+
+          ${
+            oficina
+              ? Prisma.sql`
+              AND r."RA01Sucursal" = ${oficina}
+            `
+              : Prisma.empty
+          }
+
+          ${
+            producto
+              ? Prisma.sql`
+              AND LOWER(r."RA01Categoria") = LOWER(${producto})
+            `
+              : Prisma.empty
+          }
+
+          AND r."RA01FEntrega" >=
+            TO_CHAR(
+              MAKE_DATE(
+                ${input.periodoAnio}::int,
+                c."C01PeriodoMes",
+                1
+              ),
+              'YYYY-MM-DD'
+            )
+
+          AND r."RA01FEntrega" <
+            TO_CHAR(
+              (
+                MAKE_DATE(
+                  ${input.periodoAnio}::int,
+                  c."C01PeriodoMes",
+                  1
+                )
+                + INTERVAL '1 month'
+              ),
+              'YYYY-MM-DD'
+            )
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${input.cooperativaId}::uuid
+
+          AND c."C01PeriodoAnio" =
+            ${input.periodoAnio}
+
+          AND c."C01PeriodoMes" <=
+            ${input.periodoMes}
+
+          AND c."C01Area" =
+            'CREDITO'
+
+        GROUP BY
+          c."C01PeriodoMes"
+
+        ORDER BY
+          c."C01PeriodoMes";
+      `,
+    ]);
+
+    const colocacionMap = new Map<number, number>(
+      colocacionRows.map((row) => [
+        Number(row.periodoMes),
+        this._toNumber(row.colocacion),
+      ]),
+    );
+
+    const meses: CreditoComportamientoProductoMesOutput[] = Array.from(
+      { length: 12 },
+      (_, index) => {
+        const periodoMes = index + 1;
+
+        const disponible =
+          periodoMes <= input.periodoMes && colocacionMap.has(periodoMes);
+
+        return {
+          periodoMes,
+
+          colocacion: disponible ? colocacionMap.get(periodoMes)! : null,
+
+          disponible,
+        };
+      },
+    );
+
+    const mesesDisponibles = meses.filter(
+      (
+        mes,
+      ): mes is CreditoComportamientoProductoMesOutput & {
+        colocacion: number;
+      } => mes.disponible && mes.colocacion !== null,
+    );
+
+    const masAlto = this._getExtremoColocacion(mesesDisponibles, 'MAX');
+
+    const masBajo = this._getExtremoColocacion(mesesDisponibles, 'MIN');
+
+    return {
+      oficinaNumero: oficina ?? null,
+
+      oficinaNombre: oficina ? (sucursal?.R11Nom ?? oficina) : 'Global',
+
+      productoNombre: producto ?? 'Todos los productos',
+
+      periodoMes: input.periodoMes,
+
+      periodoAnio: input.periodoAnio,
+
+      meses,
+
+      masAlto,
+
+      masBajo,
     };
   }
 
@@ -1867,6 +2003,33 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
 
         porcentaje: getPorcentaje(restoColocacion),
       },
+    };
+  }
+
+  private _getExtremoColocacion(
+    meses: Array<{
+      periodoMes: number;
+      colocacion: number;
+    }>,
+    tipo: 'MAX' | 'MIN',
+  ): CreditoComportamientoProductoExtremoOutput | null {
+    if (meses.length === 0) {
+      return null;
+    }
+
+    const extremo = meses.reduce((seleccionado, actual) => {
+      const reemplazar =
+        tipo === 'MAX'
+          ? actual.colocacion > seleccionado.colocacion
+          : actual.colocacion < seleccionado.colocacion;
+
+      return reemplazar ? actual : seleccionado;
+    });
+
+    return {
+      periodoMes: extremo.periodoMes,
+
+      colocacion: extremo.colocacion,
     };
   }
 }
