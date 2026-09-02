@@ -17,6 +17,8 @@ export class CreditoComportamientoProductoOutput {
 
   oficinaNombre: string;
 
+  productoCategoria: string;
+
   productoNombre: string;
 
   periodoMes: number;

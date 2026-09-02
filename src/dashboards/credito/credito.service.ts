@@ -1,4 +1,10 @@
-import { HttpStatus, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 
 import { OP_META_AREA, Prisma, PrismaClient } from '@prisma/client';
@@ -1122,102 +1128,126 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     input: CreditoComportamientoProductoInput,
   ): Promise<CreditoComportamientoProductoOutput> {
     const oficina = input.oficina?.trim() || undefined;
+    const productoId = input.productoId?.trim() || undefined;
 
-    const producto = input.producto?.trim() || undefined;
-
-    const [sucursal, colocacionRows] = await Promise.all([
+    const [sucursal, producto] = await Promise.all([
       oficina
         ? this.r11Sucursal.findFirst({
-            where: {
-              R11Coop_id: input.cooperativaId,
-
-              R11NumSuc: oficina,
-            },
-
-            select: {
-              R11Nom: true,
-            },
-          })
+          where: {
+            R11Coop_id: input.cooperativaId,
+            R11NumSuc: oficina,
+          },
+          select: {
+            R11Nom: true,
+          },
+        })
         : Promise.resolve(null),
 
-      this.$queryRaw<
-        {
-          periodoMes: number;
-          colocacion: Prisma.Decimal | number | bigint | string;
-        }[]
-      >`
-        SELECT
-          c."C01PeriodoMes" AS "periodoMes",
+      productoId
+        ? this.r13Producto.findFirst({
+          where: {
+            R13Id: productoId,
+            R13Coop_id: input.cooperativaId,
+          },
+          select: {
+            R13Nom: true,
+            categoria: {
+              select: {
+                R14Nom: true,
+              },
+            },
+          },
+        })
+        : Promise.resolve(null),
+    ]);
 
-          COALESCE(
-            SUM(r."RA01CEntregada"),
-            0
-          ) AS "colocacion"
+    if (productoId && !producto) {
+      throw new BadRequestException(
+        'El producto seleccionado no existe en la cooperativa.',
+      );
+    }
 
-        FROM "C01ControlCarga" c
+    const productoNombre = producto?.R13Nom.trim();
+    const categoriaNombre = producto?.categoria.R14Nom.trim();
 
-               LEFT JOIN "RA01Credito" r
-                         ON r."RA01ControlId" = c."C01Id"
+    const colocacionRows = await this.$queryRaw<
+      {
+        periodoMes: number;
+        colocacion: Prisma.Decimal | number | bigint | string;
+      }[]
+    >`
+    SELECT
+      c."C01PeriodoMes" AS "periodoMes",
 
-          ${
-            oficina
-              ? Prisma.sql`
+      COALESCE(
+        SUM(r."RA01CEntregada"),
+        0
+      ) AS "colocacion"
+
+    FROM "C01ControlCarga" c
+
+    LEFT JOIN "RA01Credito" r
+      ON r."RA01ControlId" = c."C01Id"
+
+      ${
+      oficina
+        ? Prisma.sql`
               AND r."RA01Sucursal" = ${oficina}
             `
-              : Prisma.empty
-          }
+        : Prisma.empty
+    }
 
-          ${
-            producto
-              ? Prisma.sql`
-              AND LOWER(r."RA01Categoria") = LOWER(${producto})
+      ${
+      productoNombre && categoriaNombre
+        ? Prisma.sql`
+              AND LOWER(r."RA01Categoria") = LOWER(${productoNombre})
+              AND LOWER(r."RA01Tipo") = LOWER(${categoriaNombre})
             `
-              : Prisma.empty
-          }
+        : Prisma.empty
+    }
 
-          AND r."RA01FEntrega" >=
-            TO_CHAR(
-              MAKE_DATE(
-                ${input.periodoAnio}::int,
-                c."C01PeriodoMes",
-                1
-              ),
-              'YYYY-MM-DD'
+      AND r."RA01FEntrega" >=
+        TO_CHAR(
+          MAKE_DATE(
+            ${input.periodoAnio}::int,
+            c."C01PeriodoMes",
+            1
+          ),
+          'YYYY-MM-DD'
+        )
+
+      AND r."RA01FEntrega" <
+        TO_CHAR(
+          (
+            MAKE_DATE(
+              ${input.periodoAnio}::int,
+              c."C01PeriodoMes",
+              1
             )
+            + INTERVAL '1 month'
+          ),
+          'YYYY-MM-DD'
+        )
 
-          AND r."RA01FEntrega" <
-            TO_CHAR(
-              (
-                MAKE_DATE(
-                  ${input.periodoAnio}::int,
-                  c."C01PeriodoMes",
-                  1
-                )
-                + INTERVAL '1 month'
-              ),
-              'YYYY-MM-DD'
-            )
+    WHERE
+      c."C01CooperativaCodigo" =
+        ${input.cooperativaId}::uuid
 
-        WHERE
-          c."C01CooperativaCodigo" =
-            ${input.cooperativaId}::uuid
+      AND c."C01PeriodoAnio" =
+        ${input.periodoAnio}
 
-          AND c."C01PeriodoAnio" =
-            ${input.periodoAnio}
+      AND c."C01PeriodoMes" <=
+        ${input.periodoMes}
 
-          AND c."C01PeriodoMes" <=
-            ${input.periodoMes}
+      AND c."C01Area" =
+        'CREDITO'
 
-          AND c."C01Area" =
-            'CREDITO'
+    GROUP BY
+      c."C01PeriodoMes"
 
-        GROUP BY
-          c."C01PeriodoMes"
-
-        ORDER BY
-          c."C01PeriodoMes";
-      `,
-    ]);
+    ORDER BY
+      c."C01PeriodoMes";
+  `;
 
     const colocacionMap = new Map<number, number>(
       colocacionRows.map((row) => [
@@ -1232,13 +1262,14 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         const periodoMes = index + 1;
 
         const disponible =
-          periodoMes <= input.periodoMes && colocacionMap.has(periodoMes);
+          periodoMes <= input.periodoMes &&
+          colocacionMap.has(periodoMes);
 
         return {
           periodoMes,
-
-          colocacion: disponible ? colocacionMap.get(periodoMes)! : null,
-
+          colocacion: disponible
+            ? colocacionMap.get(periodoMes)!
+            : null,
           disponible,
         };
       },
@@ -1249,19 +1280,33 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         mes,
       ): mes is CreditoComportamientoProductoMesOutput & {
         colocacion: number;
-      } => mes.disponible && mes.colocacion !== null,
+      } =>
+        mes.disponible &&
+        mes.colocacion !== null,
     );
 
-    const masAlto = this._getExtremoColocacion(mesesDisponibles, 'MAX');
+    const masAlto = this._getExtremoColocacion(
+      mesesDisponibles,
+      'MAX',
+    );
 
-    const masBajo = this._getExtremoColocacion(mesesDisponibles, 'MIN');
+    const masBajo = this._getExtremoColocacion(
+      mesesDisponibles,
+      'MIN',
+    );
 
     return {
       oficinaNumero: oficina ?? null,
 
-      oficinaNombre: oficina ? (sucursal?.R11Nom ?? oficina) : 'Global',
+      oficinaNombre: oficina
+        ? sucursal?.R11Nom ?? oficina
+        : 'Global',
 
-      productoNombre: producto ?? 'Todos los productos',
+      productoNombre:
+        productoNombre ?? 'Todos los productos',
+
+      productoCategoria:
+        categoriaNombre ?? 'Todas las categorías',
 
       periodoMes: input.periodoMes,
 

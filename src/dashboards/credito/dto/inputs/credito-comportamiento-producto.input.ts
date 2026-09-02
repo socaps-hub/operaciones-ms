@@ -19,5 +19,5 @@ export class CreditoComportamientoProductoInput {
 
   @IsOptional()
   @IsString()
-  producto?: string;
+  productoId?: string;
 }
