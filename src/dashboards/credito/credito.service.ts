@@ -40,6 +40,11 @@ import {
   CreditoComportamientoProductoMesOutput, CreditoComportamientoProductoOutput,
 } from './dto/outputs/credito-comportamiento-producto.output';
 import { CreditoComportamientoProductoInput } from './dto/inputs/credito-comportamiento-producto.input';
+import { CreditoComportamientoCarteraInput } from './dto/inputs/credito-comportamiento-cartera.input';
+import {
+  CreditoComportamientoCarteraMesOutput,
+  CreditoComportamientoCarteraOutput,
+} from './dto/outputs/credito-comportamiento-cartera.output';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -1133,31 +1138,31 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     const [sucursal, producto] = await Promise.all([
       oficina
         ? this.r11Sucursal.findFirst({
-          where: {
-            R11Coop_id: input.cooperativaId,
-            R11NumSuc: oficina,
-          },
-          select: {
-            R11Nom: true,
-          },
-        })
+            where: {
+              R11Coop_id: input.cooperativaId,
+              R11NumSuc: oficina,
+            },
+            select: {
+              R11Nom: true,
+            },
+          })
         : Promise.resolve(null),
 
       productoId
         ? this.r13Producto.findFirst({
-          where: {
-            R13Id: productoId,
-            R13Coop_id: input.cooperativaId,
-          },
-          select: {
-            R13Nom: true,
-            categoria: {
-              select: {
-                R14Nom: true,
+            where: {
+              R13Id: productoId,
+              R13Coop_id: input.cooperativaId,
+            },
+            select: {
+              R13Nom: true,
+              categoria: {
+                select: {
+                  R14Nom: true,
+                },
               },
             },
-          },
-        })
+          })
         : Promise.resolve(null),
     ]);
 
@@ -1190,21 +1195,21 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       ON r."RA01ControlId" = c."C01Id"
 
       ${
-      oficina
-        ? Prisma.sql`
+        oficina
+          ? Prisma.sql`
               AND r."RA01Sucursal" = ${oficina}
             `
-        : Prisma.empty
-    }
+          : Prisma.empty
+      }
 
       ${
-      productoNombre && categoriaNombre
-        ? Prisma.sql`
+        productoNombre && categoriaNombre
+          ? Prisma.sql`
               AND LOWER(r."RA01Categoria") = LOWER(${productoNombre})
               AND LOWER(r."RA01Tipo") = LOWER(${categoriaNombre})
             `
-        : Prisma.empty
-    }
+          : Prisma.empty
+      }
 
       AND r."RA01FEntrega" >=
         TO_CHAR(
@@ -1262,14 +1267,11 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         const periodoMes = index + 1;
 
         const disponible =
-          periodoMes <= input.periodoMes &&
-          colocacionMap.has(periodoMes);
+          periodoMes <= input.periodoMes && colocacionMap.has(periodoMes);
 
         return {
           periodoMes,
-          colocacion: disponible
-            ? colocacionMap.get(periodoMes)!
-            : null,
+          colocacion: disponible ? colocacionMap.get(periodoMes)! : null,
           disponible,
         };
       },
@@ -1280,33 +1282,21 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         mes,
       ): mes is CreditoComportamientoProductoMesOutput & {
         colocacion: number;
-      } =>
-        mes.disponible &&
-        mes.colocacion !== null,
+      } => mes.disponible && mes.colocacion !== null,
     );
 
-    const masAlto = this._getExtremoColocacion(
-      mesesDisponibles,
-      'MAX',
-    );
+    const masAlto = this._getExtremoColocacion(mesesDisponibles, 'MAX');
 
-    const masBajo = this._getExtremoColocacion(
-      mesesDisponibles,
-      'MIN',
-    );
+    const masBajo = this._getExtremoColocacion(mesesDisponibles, 'MIN');
 
     return {
       oficinaNumero: oficina ?? null,
 
-      oficinaNombre: oficina
-        ? sucursal?.R11Nom ?? oficina
-        : 'Global',
+      oficinaNombre: oficina ? (sucursal?.R11Nom ?? oficina) : 'Global',
 
-      productoNombre:
-        productoNombre ?? 'Todos los productos',
+      productoNombre: productoNombre ?? 'Todos los productos',
 
-      productoCategoria:
-        categoriaNombre ?? 'Todas las categorías',
+      productoCategoria: categoriaNombre ?? 'Todas las categorías',
 
       periodoMes: input.periodoMes,
 
@@ -1317,6 +1307,292 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       masAlto,
 
       masBajo,
+    };
+  }
+
+  // ====================================
+  // CALIDAD DE LA CARTERA
+  // ====================================
+  public async getComportamientoCartera(
+    input: CreditoComportamientoCarteraInput,
+  ): Promise<CreditoComportamientoCarteraOutput> {
+    const oficina = input.oficina?.trim() || undefined;
+    const productoId = input.productoId?.trim() || undefined;
+
+    const [sucursal, producto] = await Promise.all([
+      oficina
+        ? this.r11Sucursal.findFirst({
+            where: {
+              R11Coop_id: input.cooperativaId,
+              R11NumSuc: oficina,
+            },
+            select: {
+              R11Nom: true,
+            },
+          })
+        : Promise.resolve(null),
+
+      productoId
+        ? this.r13Producto.findFirst({
+            where: {
+              R13Id: productoId,
+              R13Coop_id: input.cooperativaId,
+            },
+            select: {
+              R13Id: true,
+              R13Nom: true,
+              categoria: {
+                select: {
+                  R14Nom: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (productoId && !producto) {
+      throw new BadRequestException(
+        'El producto seleccionado no pertenece a la cooperativa.',
+      );
+    }
+
+    const productoNombre = producto?.R13Nom ?? null;
+    const productoCategoria = producto?.categoria.R14Nom ?? null;
+
+    const [rows, carteraTotalOficinaRows] = await Promise.all([
+      this.$queryRaw<
+        {
+          periodoMes: number;
+          saldo: Prisma.Decimal | number | bigint | string;
+          numeroPrestamos: bigint | number | string;
+
+          vigente: Prisma.Decimal | number | bigint | string;
+          prestamosVigentes: bigint | number | string;
+
+          vencida: Prisma.Decimal | number | bigint | string;
+          prestamosVencidos: bigint | number | string;
+        }[]
+      >`
+      SELECT
+        c."C01PeriodoMes" AS "periodoMes",
+
+        COALESCE(
+          SUM(r."RA01TotalCartera"),
+          0
+        ) AS "saldo",
+
+        COUNT(r."RA01Folio") AS "numeroPrestamos",
+
+        COALESCE(
+          SUM(
+            CASE
+              WHEN r."RA01VigenteOVencido" = 'Vigente'
+              THEN r."RA01TotalCartera"
+              ELSE 0
+            END
+          ),
+          0
+        ) AS "vigente",
+
+        COUNT(
+          CASE
+            WHEN r."RA01VigenteOVencido" = 'Vigente'
+            THEN 1
+          END
+        ) AS "prestamosVigentes",
+
+        COALESCE(
+          SUM(
+            CASE
+              WHEN r."RA01VigenteOVencido" = 'Vencido'
+              THEN r."RA01TotalCartera"
+              ELSE 0
+            END
+          ),
+          0
+        ) AS "vencida",
+
+        COUNT(
+          CASE
+            WHEN r."RA01VigenteOVencido" = 'Vencido'
+            THEN 1
+          END
+        ) AS "prestamosVencidos"
+
+      FROM "C01ControlCarga" c
+
+      LEFT JOIN "RA01Credito" r
+        ON r."RA01ControlId" = c."C01Id"
+
+        ${
+          oficina
+            ? Prisma.sql`
+                AND r."RA01Sucursal" = ${oficina}
+              `
+            : Prisma.empty
+        }
+
+        ${
+          productoNombre && productoCategoria
+            ? Prisma.sql`
+                AND LOWER(r."RA01Categoria") = LOWER(${productoNombre})
+                AND LOWER(r."RA01Tipo") = LOWER(${productoCategoria})
+              `
+            : Prisma.empty
+        }
+
+      WHERE
+        c."C01CooperativaCodigo" = ${input.cooperativaId}::uuid
+        AND c."C01PeriodoAnio" = ${input.periodoAnio}
+        AND c."C01PeriodoMes" <= ${input.periodoMes}
+        AND c."C01Area" = 'CREDITO'
+
+      GROUP BY
+        c."C01PeriodoMes"
+
+      ORDER BY
+        c."C01PeriodoMes";
+    `,
+
+      this.$queryRaw<
+        {
+          saldo: Prisma.Decimal | number | bigint | string;
+        }[]
+      >`
+      SELECT
+        COALESCE(
+          SUM(r."RA01TotalCartera"),
+          0
+        ) AS "saldo"
+
+      FROM "C01ControlCarga" c
+
+      LEFT JOIN "RA01Credito" r
+        ON r."RA01ControlId" = c."C01Id"
+
+        ${
+          oficina
+            ? Prisma.sql`
+                AND r."RA01Sucursal" = ${oficina}
+              `
+            : Prisma.empty
+        }
+
+      WHERE
+        c."C01CooperativaCodigo" = ${input.cooperativaId}::uuid
+        AND c."C01PeriodoAnio" = ${input.periodoAnio}
+        AND c."C01PeriodoMes" = ${input.periodoMes}
+        AND c."C01Area" = 'CREDITO';
+    `,
+    ]);
+
+    const rowMap = new Map(
+      rows.map((row) => [
+        Number(row.periodoMes),
+        {
+          saldo: this._toNumber(row.saldo),
+          numeroPrestamos: this._toNumber(row.numeroPrestamos),
+
+          vigente: this._toNumber(row.vigente),
+          prestamosVigentes: this._toNumber(row.prestamosVigentes),
+
+          vencida: this._toNumber(row.vencida),
+          prestamosVencidos: this._toNumber(row.prestamosVencidos),
+        },
+      ]),
+    );
+
+    const meses: CreditoComportamientoCarteraMesOutput[] = Array.from(
+      { length: 12 },
+      (_, index) => {
+        const periodoMes = index + 1;
+
+        const disponible =
+          periodoMes <= input.periodoMes && rowMap.has(periodoMes);
+
+        return {
+          periodoMes,
+          saldo: disponible ? rowMap.get(periodoMes)!.saldo : null,
+          disponible,
+        };
+      },
+    );
+
+    const saldosDisponibles = meses
+      .filter(
+        (
+          mes,
+        ): mes is CreditoComportamientoCarteraMesOutput & {
+          saldo: number;
+        } => mes.disponible && mes.saldo !== null,
+      )
+      .map((mes) => mes.saldo);
+
+    const saldoPromedio =
+      saldosDisponibles.length > 0
+        ? saldosDisponibles.reduce((total, saldo) => total + saldo, 0) /
+          saldosDisponibles.length
+        : 0;
+
+    const periodoSeleccionado = rowMap.get(input.periodoMes);
+
+    const saldo = periodoSeleccionado?.saldo ?? 0;
+
+    const numeroPrestamos = periodoSeleccionado?.numeroPrestamos ?? 0;
+
+    const vigente = periodoSeleccionado?.vigente ?? 0;
+
+    const prestamosVigentes = periodoSeleccionado?.prestamosVigentes ?? 0;
+
+    const vencida = periodoSeleccionado?.vencida ?? 0;
+
+    const prestamosVencidos = periodoSeleccionado?.prestamosVencidos ?? 0;
+
+    const carteraTotalOficina = this._toNumber(
+      carteraTotalOficinaRows[0]?.saldo,
+    );
+
+    const participacionOficinaPorcentaje =
+      carteraTotalOficina > 0 ? (saldo / carteraTotalOficina) * 100 : 0;
+
+    const vigentePorcentaje = saldo > 0 ? (vigente / saldo) * 100 : 0;
+
+    const vencidaPorcentaje = saldo > 0 ? (vencida / saldo) * 100 : 0;
+
+    return {
+      oficinaNumero: oficina ?? null,
+
+      oficinaNombre: oficina ? (sucursal?.R11Nom ?? oficina) : 'Global',
+
+      productoId: producto?.R13Id ?? null,
+
+      productoNombre: producto?.R13Nom ?? 'Todos los productos',
+
+      productoCategoria: producto?.categoria.R14Nom ?? null,
+
+      periodoMes: input.periodoMes,
+
+      periodoAnio: input.periodoAnio,
+
+      saldoPromedio,
+
+      resumen: {
+        saldo,
+        numeroPrestamos,
+
+        participacionOficinaPorcentaje,
+
+        vigente,
+        prestamosVigentes,
+        vigentePorcentaje,
+
+        vencida,
+        prestamosVencidos,
+        vencidaPorcentaje,
+      },
+
+      meses,
     };
   }
 

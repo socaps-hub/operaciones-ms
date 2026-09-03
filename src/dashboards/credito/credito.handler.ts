@@ -15,6 +15,8 @@ import {
 } from './dto/outputs/credito-cumplimiento-mensual-colocacion.output';
 import { CreditoComportamientoProductoInput } from './dto/inputs/credito-comportamiento-producto.input';
 import { CreditoComportamientoProductoOutput } from './dto/outputs/credito-comportamiento-producto.output';
+import { CreditoComportamientoCarteraInput } from './dto/inputs/credito-comportamiento-cartera.input';
+import { CreditoComportamientoCarteraOutput } from './dto/outputs/credito-comportamiento-cartera.output';
 
 @Controller()
 export class CreditoHandler {
@@ -73,5 +75,12 @@ export class CreditoHandler {
     input: CreditoComportamientoProductoInput,
   ): Promise<CreditoComportamientoProductoOutput> {
     return this._service.getComportamientoProducto(input);
+  }
+
+  @MessagePattern('operaciones.credito.getComportamientoCartera')
+  public async getComportamientoCartera(
+    @Payload() input: CreditoComportamientoCarteraInput,
+  ): Promise<CreditoComportamientoCarteraOutput> {
+    return this._service.getComportamientoCartera(input);
   }
 }
