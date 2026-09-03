@@ -45,6 +45,8 @@ import {
   CreditoComportamientoCarteraMesOutput,
   CreditoComportamientoCarteraOutput,
 } from './dto/outputs/credito-comportamiento-cartera.output';
+import { CreditoComposicionCarteraInput } from './dto/inputs/credito-composicion-cartera.input';
+import { CreditoComposicionCarteraOutput } from './dto/outputs/credito-composicion-cartera.output';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -1595,6 +1597,165 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       meses,
     };
   }
+
+  public async getComposicionCartera(
+    input: CreditoComposicionCarteraInput,
+  ): Promise<CreditoComposicionCarteraOutput> {
+    const oficina = input.oficina?.trim() || undefined;
+
+    const [sucursal, rows] = await Promise.all([
+      oficina
+        ? this.r11Sucursal.findFirst({
+          where: {
+            R11Coop_id: input.cooperativaId,
+            R11NumSuc: oficina,
+          },
+          select: {
+            R11Nom: true,
+          },
+        })
+        : Promise.resolve(null),
+
+      this.$queryRaw<
+        {
+          productoNombre: string;
+          productoCategoria: string;
+
+          saldo: Prisma.Decimal | number | bigint | string;
+          vigente: Prisma.Decimal | number | bigint | string;
+          vencida: Prisma.Decimal | number | bigint | string;
+
+          numeroPrestamos: bigint | number | string;
+          prestamosVigentes: bigint | number | string;
+          prestamosVencidos: bigint | number | string;
+        }[]
+      >`
+      SELECT
+        r."RA01Categoria" AS "productoNombre",
+        r."RA01Tipo" AS "productoCategoria",
+
+        COALESCE(
+          SUM(r."RA01TotalCartera"),
+          0
+        ) AS "saldo",
+
+        COALESCE(
+          SUM(
+            CASE
+              WHEN r."RA01VigenteOVencido" = 'Vigente'
+              THEN r."RA01TotalCartera"
+              ELSE 0
+            END
+          ),
+          0
+        ) AS "vigente",
+
+        COALESCE(
+          SUM(
+            CASE
+              WHEN r."RA01VigenteOVencido" = 'Vencido'
+              THEN r."RA01TotalCartera"
+              ELSE 0
+            END
+          ),
+          0
+        ) AS "vencida",
+
+        COUNT(r."RA01Folio") AS "numeroPrestamos",
+
+        COUNT(
+          CASE
+            WHEN r."RA01VigenteOVencido" = 'Vigente'
+            THEN 1
+          END
+        ) AS "prestamosVigentes",
+
+        COUNT(
+          CASE
+            WHEN r."RA01VigenteOVencido" = 'Vencido'
+            THEN 1
+          END
+        ) AS "prestamosVencidos"
+
+      FROM "C01ControlCarga" c
+
+      INNER JOIN "RA01Credito" r
+        ON r."RA01ControlId" = c."C01Id"
+
+        ${
+        oficina
+          ? Prisma.sql`
+                AND r."RA01Sucursal" = ${oficina}
+              `
+          : Prisma.empty
+      }
+
+      WHERE
+        c."C01CooperativaCodigo" = ${input.cooperativaId}::uuid
+        AND c."C01PeriodoMes" = ${input.periodoMes}
+        AND c."C01PeriodoAnio" = ${input.periodoAnio}
+        AND c."C01Area" = 'CREDITO'
+
+      GROUP BY
+        r."RA01Categoria",
+        r."RA01Tipo"
+
+      ORDER BY
+        SUM(r."RA01TotalCartera") DESC;
+    `,
+    ]);
+
+    const productos =
+      rows.map((row) => {
+        const saldo = this._toNumber(row.saldo);
+        const vigente = this._toNumber(row.vigente);
+        const vencida = this._toNumber(row.vencida);
+
+        return {
+          productoNombre: row.productoNombre,
+          productoCategoria: row.productoCategoria,
+
+          saldo,
+          vigente,
+          vencida,
+
+          vigentePorcentaje:
+            saldo > 0
+              ? (vigente / saldo) * 100
+              : 0,
+
+          vencidaPorcentaje:
+            saldo > 0
+              ? (vencida / saldo) * 100
+              : 0,
+
+          numeroPrestamos:
+            this._toNumber(row.numeroPrestamos),
+
+          prestamosVigentes:
+            this._toNumber(row.prestamosVigentes),
+
+          prestamosVencidos:
+            this._toNumber(row.prestamosVencidos),
+        };
+      });
+
+    return {
+      oficinaNumero: oficina ?? null,
+
+      oficinaNombre:
+        oficina
+          ? sucursal?.R11Nom ?? oficina
+          : 'Global',
+
+      periodoMes: input.periodoMes,
+
+      periodoAnio: input.periodoAnio,
+
+      productos,
+    };
+  }
+
 
   //   ==================================
   //   HELPERS

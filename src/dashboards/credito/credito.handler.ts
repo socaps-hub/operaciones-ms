@@ -17,6 +17,8 @@ import { CreditoComportamientoProductoInput } from './dto/inputs/credito-comport
 import { CreditoComportamientoProductoOutput } from './dto/outputs/credito-comportamiento-producto.output';
 import { CreditoComportamientoCarteraInput } from './dto/inputs/credito-comportamiento-cartera.input';
 import { CreditoComportamientoCarteraOutput } from './dto/outputs/credito-comportamiento-cartera.output';
+import { CreditoComposicionCarteraInput } from './dto/inputs/credito-composicion-cartera.input';
+import { CreditoComposicionCarteraOutput } from './dto/outputs/credito-composicion-cartera.output';
 
 @Controller()
 export class CreditoHandler {
@@ -29,6 +31,9 @@ export class CreditoHandler {
     return this._service.getColocacionTotalDashboard(input);
   }
 
+  // ===================================
+  // CUMPLIMIENTO-METAS
+  // ===================================
   @MessagePattern('operaciones.credito.getMedicionAnual')
   public getMedicionAnual(@Payload() input: CreditoMedicionAnualInput) {
     return this._service.getMedicionAnual(input);
@@ -77,10 +82,21 @@ export class CreditoHandler {
     return this._service.getComportamientoProducto(input);
   }
 
+  // ===================================
+  // CALIDAD DE LA CARTERA
+  // ===================================
   @MessagePattern('operaciones.credito.getComportamientoCartera')
   public async getComportamientoCartera(
     @Payload() input: CreditoComportamientoCarteraInput,
   ): Promise<CreditoComportamientoCarteraOutput> {
     return this._service.getComportamientoCartera(input);
+  }
+
+  @MessagePattern('operaciones.credito.getComposicionCartera')
+  public async getComposicionCartera(
+    @Payload()
+    input: CreditoComposicionCarteraInput,
+  ): Promise<CreditoComposicionCarteraOutput> {
+    return this._service.getComposicionCartera(input);
   }
 }
