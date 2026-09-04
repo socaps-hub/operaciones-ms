@@ -47,6 +47,8 @@ import {
 } from './dto/outputs/credito-comportamiento-cartera.output';
 import { CreditoComposicionCarteraInput } from './dto/inputs/credito-composicion-cartera.input';
 import { CreditoComposicionCarteraOutput } from './dto/outputs/credito-composicion-cartera.output';
+import { CreditoDiasAtrasoInput } from './dto/inputs/credito-dias-atraso.input';
+import { CreditoDiasAtrasoOutput } from './dto/outputs/credito-dias-atraso.output';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -1753,6 +1755,320 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       periodoAnio: input.periodoAnio,
 
       productos,
+    };
+  }
+
+  public async getDiasAtraso(
+    input: CreditoDiasAtrasoInput,
+  ): Promise<CreditoDiasAtrasoOutput> {
+    const oficina = input.oficina?.trim() || undefined;
+
+    let productoNombre: string | null = null;
+    let productoCategoria: string | null = null;
+
+    if (input.productoId) {
+      const producto = await this.r13Producto.findFirst({
+        where: {
+          R13Id: input.productoId,
+          R13Coop_id: input.cooperativaId,
+        },
+        select: {
+          R13Nom: true,
+          categoria: {
+            select: {
+              R14Nom: true,
+            },
+          },
+        },
+      });
+
+      if (!producto) {
+        throw new Error('Producto no encontrado');
+      }
+
+      productoNombre = producto.R13Nom;
+      productoCategoria = producto.categoria.R14Nom;
+    }
+
+    const productoWhere = input.productoId
+      ? Prisma.sql`
+        AND LOWER(r."RA01Categoria") = LOWER(${productoNombre!})
+        AND LOWER(r."RA01Tipo") = LOWER(${productoCategoria!})
+      `
+      : Prisma.empty;
+
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const [sucursal, segmentoRows, totalRows] = await Promise.all([
+      oficina
+        ? this.r11Sucursal.findFirst({
+            where: {
+              R11Coop_id: input.cooperativaId,
+              R11NumSuc: oficina,
+            },
+            select: {
+              R11Nom: true,
+            },
+          })
+        : Promise.resolve(null),
+
+      this.$queryRaw<
+        {
+          rango: string;
+          orden: number;
+          monto: Prisma.Decimal | number | bigint | string;
+          numeroPrestamos: bigint | number | string;
+        }[]
+      >`
+      SELECT
+        CASE
+          WHEN r."RA01DiasMora" = 0 THEN '0 días'
+          WHEN r."RA01DiasMora" BETWEEN 1 AND 30 THEN '1-30'
+          WHEN r."RA01DiasMora" BETWEEN 31 AND 60 THEN '31-60'
+          WHEN r."RA01DiasMora" BETWEEN 61 AND 90 THEN '61-90'
+          WHEN r."RA01DiasMora" BETWEEN 91 AND 120 THEN '91-120'
+          WHEN r."RA01DiasMora" >= 121 THEN '121 o más'
+        END AS "rango",
+
+        CASE
+          WHEN r."RA01DiasMora" = 0 THEN 1
+          WHEN r."RA01DiasMora" BETWEEN 1 AND 30 THEN 2
+          WHEN r."RA01DiasMora" BETWEEN 31 AND 60 THEN 3
+          WHEN r."RA01DiasMora" BETWEEN 61 AND 90 THEN 4
+          WHEN r."RA01DiasMora" BETWEEN 91 AND 120 THEN 5
+          WHEN r."RA01DiasMora" >= 121 THEN 6
+        END AS "orden",
+
+        COALESCE(
+          SUM(r."RA01TotalCartera"),
+          0
+        ) AS "monto",
+
+        COUNT(*) AS "numeroPrestamos"
+
+      FROM "C01ControlCarga" c
+
+      INNER JOIN "RA01Credito" r
+        ON r."RA01ControlId" = c."C01Id"
+
+      WHERE
+        c."C01CooperativaCodigo" = ${input.cooperativaId}::uuid
+        AND c."C01PeriodoMes" = ${input.periodoMes}
+        AND c."C01PeriodoAnio" = ${input.periodoAnio}
+        AND c."C01Area" = 'CREDITO'
+
+        ${oficinaWhere}
+        ${productoWhere}
+
+        AND r."RA01DiasMora" IS NOT NULL
+
+      GROUP BY
+        "rango",
+        "orden"
+
+      ORDER BY
+        "orden";
+    `,
+
+      input.productoId
+        ? this.$queryRaw<
+            {
+              rango: string;
+              orden: number;
+              monto: Prisma.Decimal | number | bigint | string;
+            }[]
+          >`
+          SELECT
+            CASE
+              WHEN r."RA01DiasMora" = 0 THEN '0 días'
+              WHEN r."RA01DiasMora" BETWEEN 1 AND 30 THEN '1-30'
+              WHEN r."RA01DiasMora" BETWEEN 31 AND 60 THEN '31-60'
+              WHEN r."RA01DiasMora" BETWEEN 61 AND 90 THEN '61-90'
+              WHEN r."RA01DiasMora" BETWEEN 91 AND 120 THEN '91-120'
+              WHEN r."RA01DiasMora" >= 121 THEN '121 o más'
+            END AS "rango",
+
+            CASE
+              WHEN r."RA01DiasMora" = 0 THEN 1
+              WHEN r."RA01DiasMora" BETWEEN 1 AND 30 THEN 2
+              WHEN r."RA01DiasMora" BETWEEN 31 AND 60 THEN 3
+              WHEN r."RA01DiasMora" BETWEEN 61 AND 90 THEN 4
+              WHEN r."RA01DiasMora" BETWEEN 91 AND 120 THEN 5
+              WHEN r."RA01DiasMora" >= 121 THEN 6
+            END AS "orden",
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            ) AS "monto"
+
+          FROM "C01ControlCarga" c
+
+          INNER JOIN "RA01Credito" r
+            ON r."RA01ControlId" = c."C01Id"
+
+          WHERE
+            c."C01CooperativaCodigo" = ${input.cooperativaId}::uuid
+            AND c."C01PeriodoMes" = ${input.periodoMes}
+            AND c."C01PeriodoAnio" = ${input.periodoAnio}
+            AND c."C01Area" = 'CREDITO'
+
+            ${oficinaWhere}
+
+            AND r."RA01DiasMora" IS NOT NULL
+
+          GROUP BY
+            "rango",
+            "orden"
+
+          ORDER BY
+            "orden";
+        `
+        : Promise.resolve([]),
+    ]);
+
+    const rangoDefinitions = [
+      {
+        rango: '0 días',
+        desde: 0,
+        hasta: 0,
+      },
+      {
+        rango: '1-30',
+        desde: 1,
+        hasta: 30,
+      },
+      {
+        rango: '31-60',
+        desde: 31,
+        hasta: 60,
+      },
+      {
+        rango: '61-90',
+        desde: 61,
+        hasta: 90,
+      },
+      {
+        rango: '91-120',
+        desde: 91,
+        hasta: 120,
+      },
+      {
+        rango: '121 o más',
+        desde: 121,
+        hasta: null,
+      },
+    ];
+
+    const segmentoMap = new Map<string, { monto: number; numeroPrestamos: number; }>(
+      segmentoRows.map(
+        (
+          row,
+        ): [
+          string,
+          {
+            monto: number;
+            numeroPrestamos: number;
+          },
+        ] => [
+          row.rango,
+          {
+            monto: this._toNumber(row.monto),
+            numeroPrestamos: this._toNumber(row.numeroPrestamos),
+          },
+        ],
+      ),
+    );
+
+    const totalPorRangoMap = new Map<string, number>(
+      totalRows.map(
+        (row): [string, number] => [
+          row.rango,
+          this._toNumber(row.monto),
+        ],
+      ),
+    );
+
+    const totalCartera = Array.from(
+      segmentoMap.values(),
+    ).reduce(
+      (total, row) => total + row.monto,
+      0,
+    );
+
+    const numeroPrestamos = Array.from(
+      segmentoMap.values(),
+    ).reduce(
+      (total, row) => total + row.numeroPrestamos,
+      0,
+    );
+
+    const rangos = rangoDefinitions.map((definition) => {
+      const segmento = segmentoMap.get(
+        definition.rango,
+      ) ?? {
+        monto: 0,
+        numeroPrestamos: 0,
+      };
+
+      let porcentaje = 0;
+
+      if (input.productoId) {
+        const totalRango =
+          totalPorRangoMap.get(definition.rango) ?? 0;
+
+        porcentaje =
+          totalRango > 0
+            ? (segmento.monto / totalRango) * 100
+            : 0;
+      } else {
+        porcentaje =
+          totalCartera > 0
+            ? (segmento.monto / totalCartera) * 100
+            : 0;
+      }
+
+      return {
+        ...definition,
+
+        monto: segmento.monto,
+
+        numeroPrestamos:
+        segmento.numeroPrestamos,
+
+        porcentaje,
+      };
+    });
+
+    return {
+      oficinaNumero: oficina ?? null,
+
+      oficinaNombre:
+        oficina
+          ? sucursal?.R11Nom ?? oficina
+          : 'Global',
+
+      productoId:
+        input.productoId ?? null,
+
+      productoNombre:
+        productoNombre ?? 'Todos los productos',
+
+      productoCategoria,
+
+      periodoMes: input.periodoMes,
+
+      periodoAnio: input.periodoAnio,
+
+      totalCartera,
+
+      numeroPrestamos,
+
+      rangos,
     };
   }
 
