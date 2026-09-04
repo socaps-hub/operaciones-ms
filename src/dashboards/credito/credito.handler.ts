@@ -21,6 +21,8 @@ import { CreditoComposicionCarteraInput } from './dto/inputs/credito-composicion
 import { CreditoComposicionCarteraOutput } from './dto/outputs/credito-composicion-cartera.output';
 import { CreditoDiasAtrasoInput } from './dto/inputs/credito-dias-atraso.input';
 import { CreditoDiasAtrasoOutput } from './dto/outputs/credito-dias-atraso.output';
+import { CreditoAmortizacionesPactadasInput } from './dto/inputs/credito-amortizaciones-pactadas.input';
+import { CreditoAmortizacionesPactadasOutput } from './dto/outputs/credito-amortizaciones-pactadas.output';
 
 @Controller()
 export class CreditoHandler {
@@ -108,5 +110,13 @@ export class CreditoHandler {
     input: CreditoDiasAtrasoInput,
   ): Promise<CreditoDiasAtrasoOutput> {
     return this._service.getDiasAtraso(input);
+  }
+
+  @MessagePattern('operaciones.credito.getAmortizacionesPactadas')
+  public async getAmortizacionesPactadas(
+    @Payload()
+    input: CreditoAmortizacionesPactadasInput,
+  ): Promise<CreditoAmortizacionesPactadasOutput> {
+    return this._service.getAmortizacionesPactadas(input);
   }
 }

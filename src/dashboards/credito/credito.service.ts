@@ -49,6 +49,8 @@ import { CreditoComposicionCarteraInput } from './dto/inputs/credito-composicion
 import { CreditoComposicionCarteraOutput } from './dto/outputs/credito-composicion-cartera.output';
 import { CreditoDiasAtrasoInput } from './dto/inputs/credito-dias-atraso.input';
 import { CreditoDiasAtrasoOutput } from './dto/outputs/credito-dias-atraso.output';
+import { CreditoAmortizacionesPactadasInput } from './dto/inputs/credito-amortizaciones-pactadas.input';
+import { CreditoAmortizacionesPactadasOutput } from './dto/outputs/credito-amortizaciones-pactadas.output';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -2040,6 +2042,354 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         numeroPrestamos:
         segmento.numeroPrestamos,
 
+        porcentaje,
+      };
+    });
+
+    return {
+      oficinaNumero: oficina ?? null,
+
+      oficinaNombre:
+        oficina
+          ? sucursal?.R11Nom ?? oficina
+          : 'Global',
+
+      productoId:
+        input.productoId ?? null,
+
+      productoNombre:
+        productoNombre ?? 'Todos los productos',
+
+      productoCategoria,
+
+      periodoMes: input.periodoMes,
+
+      periodoAnio: input.periodoAnio,
+
+      totalCartera,
+
+      numeroPrestamos,
+
+      rangos,
+    };
+  }
+
+  public async getAmortizacionesPactadas(
+    input: CreditoAmortizacionesPactadasInput,
+  ): Promise<CreditoAmortizacionesPactadasOutput> {
+    const oficina = input.oficina?.trim() || undefined;
+
+    let productoNombre: string | null = null;
+    let productoCategoria: string | null = null;
+
+    if (input.productoId) {
+      const producto = await this.r13Producto.findFirst({
+        where: {
+          R13Id: input.productoId,
+          R13Coop_id: input.cooperativaId,
+        },
+        select: {
+          R13Nom: true,
+          categoria: {
+            select: {
+              R14Nom: true,
+            },
+          },
+        },
+      });
+
+      if (!producto) {
+        throw new Error('Producto no encontrado');
+      }
+
+      productoNombre = producto.R13Nom;
+      productoCategoria = producto.categoria.R14Nom;
+    }
+
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const productoWhere = input.productoId
+      ? Prisma.sql`
+        AND LOWER(r."RA01Categoria") = LOWER(${productoNombre!})
+        AND LOWER(r."RA01Tipo") = LOWER(${productoCategoria!})
+      `
+      : Prisma.empty;
+
+    const [sucursal, segmentoRows, totalRows] = await Promise.all([
+      oficina
+        ? this.r11Sucursal.findFirst({
+          where: {
+            R11Coop_id: input.cooperativaId,
+            R11NumSuc: oficina,
+          },
+          select: {
+            R11Nom: true,
+          },
+        })
+        : Promise.resolve(null),
+
+      this.$queryRaw<
+        {
+          rango: string;
+          orden: number;
+          monto: Prisma.Decimal | number | bigint | string;
+          numeroPrestamos: bigint | number | string;
+        }[]
+      >`
+      SELECT
+        CASE
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer = 1
+            THEN '1 Pago Único'
+
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 2 AND 12
+            THEN '2 a 12 Pagos'
+
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 13 AND 24
+            THEN '13 a 24 Pagos'
+
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 25 AND 36
+            THEN '25 a 36 Pagos'
+
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 37 AND 48
+            THEN '37 a 48 Pagos'
+
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 49 AND 60
+            THEN '49 a 60 Pagos'
+
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer >= 61
+            THEN 'Más de 60 Pagos'
+        END AS "rango",
+
+        CASE
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer = 1 THEN 1
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 2 AND 12 THEN 2
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 13 AND 24 THEN 3
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 25 AND 36 THEN 4
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 37 AND 48 THEN 5
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 49 AND 60 THEN 6
+          WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer >= 61 THEN 7
+        END AS "orden",
+
+        COALESCE(
+          SUM(r."RA01TotalCartera"),
+          0
+        ) AS "monto",
+
+        COUNT(*) AS "numeroPrestamos"
+
+      FROM "C01ControlCarga" c
+
+      INNER JOIN "RA01Credito" r
+        ON r."RA01ControlId" = c."C01Id"
+
+      WHERE
+        c."C01CooperativaCodigo" = ${input.cooperativaId}::uuid
+        AND c."C01PeriodoMes" = ${input.periodoMes}
+        AND c."C01PeriodoAnio" = ${input.periodoAnio}
+        AND c."C01Area" = 'CREDITO'
+
+        ${oficinaWhere}
+        ${productoWhere}
+
+        AND NULLIF(TRIM(r."RA01Abonos"), '') IS NOT NULL
+
+      GROUP BY
+        "rango",
+        "orden"
+
+      ORDER BY
+        "orden";
+    `,
+
+      input.productoId
+        ? this.$queryRaw<
+          {
+            rango: string;
+            orden: number;
+            monto: Prisma.Decimal | number | bigint | string;
+          }[]
+        >`
+          SELECT
+            CASE
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer = 1
+                THEN '1 Pago Único'
+
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 2 AND 12
+                THEN '2 a 12 Pagos'
+
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 13 AND 24
+                THEN '13 a 24 Pagos'
+
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 25 AND 36
+                THEN '25 a 36 Pagos'
+
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 37 AND 48
+                THEN '37 a 48 Pagos'
+
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 49 AND 60
+                THEN '49 a 60 Pagos'
+
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer >= 61
+                THEN 'Más de 60 Pagos'
+            END AS "rango",
+
+            CASE
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer = 1 THEN 1
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 2 AND 12 THEN 2
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 13 AND 24 THEN 3
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 25 AND 36 THEN 4
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 37 AND 48 THEN 5
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer BETWEEN 49 AND 60 THEN 6
+              WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer >= 61 THEN 7
+            END AS "orden",
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            ) AS "monto"
+
+          FROM "C01ControlCarga" c
+
+          INNER JOIN "RA01Credito" r
+            ON r."RA01ControlId" = c."C01Id"
+
+          WHERE
+            c."C01CooperativaCodigo" = ${input.cooperativaId}::uuid
+            AND c."C01PeriodoMes" = ${input.periodoMes}
+            AND c."C01PeriodoAnio" = ${input.periodoAnio}
+            AND c."C01Area" = 'CREDITO'
+
+            ${oficinaWhere}
+
+            AND NULLIF(TRIM(r."RA01Abonos"), '') IS NOT NULL
+
+          GROUP BY
+            "rango",
+            "orden"
+
+          ORDER BY
+            "orden";
+        `
+        : Promise.resolve([]),
+    ]);
+
+    const rangoDefinitions = [
+      {
+        rango: '1 Pago Único',
+        desde: 1,
+        hasta: 1,
+      },
+      {
+        rango: '2 a 12 Pagos',
+        desde: 2,
+        hasta: 12,
+      },
+      {
+        rango: '13 a 24 Pagos',
+        desde: 13,
+        hasta: 24,
+      },
+      {
+        rango: '25 a 36 Pagos',
+        desde: 25,
+        hasta: 36,
+      },
+      {
+        rango: '37 a 48 Pagos',
+        desde: 37,
+        hasta: 48,
+      },
+      {
+        rango: '49 a 60 Pagos',
+        desde: 49,
+        hasta: 60,
+      },
+      {
+        rango: 'Más de 60 Pagos',
+        desde: 61,
+        hasta: null,
+      },
+    ];
+
+    const segmentoMap = new Map<
+      string,
+      {
+        monto: number;
+        numeroPrestamos: number;
+      }
+    >(
+      segmentoRows.map(
+        (row): [
+          string,
+          {
+            monto: number;
+            numeroPrestamos: number;
+          },
+        ] => [
+          row.rango,
+          {
+            monto: this._toNumber(row.monto),
+            numeroPrestamos: this._toNumber(row.numeroPrestamos),
+          },
+        ],
+      ),
+    );
+
+    const totalPorRangoMap = new Map<string, number>(
+      totalRows.map(
+        (row): [string, number] => [
+          row.rango,
+          this._toNumber(row.monto),
+        ],
+      ),
+    );
+
+    const totalCartera = Array.from(
+      segmentoMap.values(),
+    ).reduce(
+      (total, row) => total + row.monto,
+      0,
+    );
+
+    const numeroPrestamos = Array.from(
+      segmentoMap.values(),
+    ).reduce(
+      (total, row) => total + row.numeroPrestamos,
+      0,
+    );
+
+    const rangos = rangoDefinitions.map((definition) => {
+      const segmento =
+        segmentoMap.get(definition.rango) ?? {
+          monto: 0,
+          numeroPrestamos: 0,
+        };
+
+      let porcentaje = 0;
+
+      if (input.productoId) {
+        const totalRango =
+          totalPorRangoMap.get(definition.rango) ?? 0;
+
+        porcentaje =
+          totalRango > 0
+            ? (segmento.monto / totalRango) * 100
+            : 0;
+      } else {
+        porcentaje =
+          totalCartera > 0
+            ? (segmento.monto / totalCartera) * 100
+            : 0;
+      }
+
+      return {
+        ...definition,
+        monto: segmento.monto,
+        numeroPrestamos: segmento.numeroPrestamos,
         porcentaje,
       };
     });
