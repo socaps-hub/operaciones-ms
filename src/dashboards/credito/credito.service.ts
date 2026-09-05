@@ -2010,22 +2010,22 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     );
 
     const rangos = rangoDefinitions.map((definition) => {
-      const segmento = segmentoMap.get(
-        definition.rango,
-      ) ?? {
-        monto: 0,
-        numeroPrestamos: 0,
-      };
+      const segmento =
+        segmentoMap.get(definition.rango) ?? {
+          monto: 0,
+          numeroPrestamos: 0,
+        };
+
+      const carteraBanda = input.productoId
+        ? totalPorRangoMap.get(definition.rango) ?? 0
+        : segmento.monto;
 
       let porcentaje = 0;
 
       if (input.productoId) {
-        const totalRango =
-          totalPorRangoMap.get(definition.rango) ?? 0;
-
         porcentaje =
-          totalRango > 0
-            ? (segmento.monto / totalRango) * 100
+          carteraBanda > 0
+            ? (segmento.monto / carteraBanda) * 100
             : 0;
       } else {
         porcentaje =
@@ -2038,6 +2038,8 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         ...definition,
 
         monto: segmento.monto,
+
+        carteraBanda,
 
         numeroPrestamos:
         segmento.numeroPrestamos,
@@ -2122,14 +2124,14 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     const [sucursal, segmentoRows, totalRows] = await Promise.all([
       oficina
         ? this.r11Sucursal.findFirst({
-          where: {
-            R11Coop_id: input.cooperativaId,
-            R11NumSuc: oficina,
-          },
-          select: {
-            R11Nom: true,
-          },
-        })
+            where: {
+              R11Coop_id: input.cooperativaId,
+              R11NumSuc: oficina,
+            },
+            select: {
+              R11Nom: true,
+            },
+          })
         : Promise.resolve(null),
 
       this.$queryRaw<
@@ -2207,12 +2209,12 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
 
       input.productoId
         ? this.$queryRaw<
-          {
-            rango: string;
-            orden: number;
-            monto: Prisma.Decimal | number | bigint | string;
-          }[]
-        >`
+            {
+              rango: string;
+              orden: number;
+              monto: Prisma.Decimal | number | bigint | string;
+            }[]
+          >`
           SELECT
             CASE
               WHEN NULLIF(TRIM(r."RA01Abonos"), '')::integer = 1
@@ -2363,33 +2365,34 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     );
 
     const rangos = rangoDefinitions.map((definition) => {
-      const segmento =
-        segmentoMap.get(definition.rango) ?? {
-          monto: 0,
-          numeroPrestamos: 0,
-        };
+      const segmento = segmentoMap.get(definition.rango) ?? {
+        monto: 0,
+        numeroPrestamos: 0,
+      };
+
+      const carteraBanda = input.productoId
+        ? (totalPorRangoMap.get(definition.rango) ?? 0)
+        : segmento.monto;
 
       let porcentaje = 0;
 
       if (input.productoId) {
-        const totalRango =
-          totalPorRangoMap.get(definition.rango) ?? 0;
-
         porcentaje =
-          totalRango > 0
-            ? (segmento.monto / totalRango) * 100
-            : 0;
+          carteraBanda > 0 ? (segmento.monto / carteraBanda) * 100 : 0;
       } else {
         porcentaje =
-          totalCartera > 0
-            ? (segmento.monto / totalCartera) * 100
-            : 0;
+          totalCartera > 0 ? (segmento.monto / totalCartera) * 100 : 0;
       }
 
       return {
         ...definition,
+
         monto: segmento.monto,
+
+        carteraBanda,
+
         numeroPrestamos: segmento.numeroPrestamos,
+
         porcentaje,
       };
     });

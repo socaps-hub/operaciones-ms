@@ -2,7 +2,11 @@ export class CreditoAmortizacionesPactadasRangoOutput {
   rango: string;
   desde: number;
   hasta: number | null;
+
   monto: number;
+
+  carteraBanda: number;
+
   numeroPrestamos: number;
   porcentaje: number;
 }

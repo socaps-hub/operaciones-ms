@@ -1,14 +1,13 @@
 export class CreditoDiasAtrasoRangoOutput {
   rango: string;
-
   desde: number;
-
   hasta: number | null;
 
   monto: number;
 
-  numeroPrestamos: number;
+  carteraBanda: number;
 
+  numeroPrestamos: number;
   porcentaje: number;
 }
 
