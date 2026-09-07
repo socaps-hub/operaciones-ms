@@ -54,6 +54,11 @@ import { CreditoAmortizacionesPactadasInput } from './dto/inputs/credito-amortiz
 import { CreditoAmortizacionesPactadasOutput } from './dto/outputs/credito-amortizaciones-pactadas.output';
 import { CreditoAmortizacionesVencidasInput } from './dto/inputs/credito-amortizaciones-vencidas.input';
 import { CreditoAmortizacionesVencidasOutput } from './dto/outputs/credito-amortizaciones-vencidas.output';
+import { CreditoTipoAutorizacionInput } from './dto/inputs/credito-tipo-autorizacion.input';
+import {
+  CreditoTipoAutorizacionOutput,
+  CreditoTipoAutorizacionSegmentoOutput,
+} from './dto/outputs/credito-tipo-autorizacion.output';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -2728,6 +2733,320 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       rangos,
     };
   }
+
+  public async getTipoAutorizacion(
+    input: CreditoTipoAutorizacionInput,
+  ): Promise<CreditoTipoAutorizacionOutput> {
+    const tipoDefinitions = [
+      {
+        tipo: 'NORMAL',
+        valorDb: 'Normal',
+      },
+      {
+        tipo: 'RENOVADA',
+        valorDb: 'Préstamo Renovado',
+      },
+    ] as const;
+
+    let productoNombre: string | null = null;
+    let productoCategoria: string | null = null;
+
+    const [sucursal, producto] = await Promise.all([
+      input.oficina
+        ? this.r11Sucursal.findFirst({
+          where: {
+            R11Coop_id: input.cooperativaId,
+            R11NumSuc: input.oficina,
+          },
+          select: {
+            R11Nom: true,
+          },
+        })
+        : Promise.resolve(null),
+
+      input.productoId
+        ? this.r13Producto.findFirst({
+          where: {
+            R13Id: input.productoId,
+            R13Coop_id: input.cooperativaId,
+            R13Activ: true,
+          },
+          select: {
+            R13Nom: true,
+            categoria: {
+              select: {
+                R14Nom: true,
+              },
+            },
+          },
+        })
+        : Promise.resolve(null),
+    ]);
+
+    if (input.productoId) {
+      if (!producto) {
+        throw new NotFoundException(
+          'El producto seleccionado no existe para la cooperativa.',
+        );
+      }
+
+      productoNombre = producto.R13Nom;
+      productoCategoria = producto.categoria.R14Nom;
+    }
+
+    const oficinaFilter = input.oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${input.oficina}
+      `
+      : Prisma.empty;
+
+    const productoFilter =
+      productoNombre && productoCategoria
+        ? Prisma.sql`
+          AND LOWER(TRIM(r."RA01Categoria")) =
+              LOWER(TRIM(${productoNombre}))
+          AND LOWER(TRIM(r."RA01Tipo")) =
+              LOWER(TRIM(${productoCategoria}))
+        `
+        : Prisma.empty;
+
+    type DistribucionRow = {
+      tipo: string;
+      monto:
+        | string
+        | number
+        | bigint
+        | Prisma.Decimal
+        | null;
+      numeroPrestamos: bigint;
+    };
+
+    const [oficinaRows, productoRows] =
+      await Promise.all([
+        this.$queryRaw<DistribucionRow[]>(
+          Prisma.sql`
+          SELECT
+            CASE
+              WHEN LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
+                   LOWER('Normal')
+                THEN 'NORMAL'
+
+              WHEN LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
+                   LOWER('Préstamo Renovado')
+                THEN 'RENOVADA'
+            END AS tipo,
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            ) AS monto,
+
+            COUNT(*) AS "numeroPrestamos"
+
+          FROM "RA01Credito" r
+
+          INNER JOIN "C01ControlCarga" c
+            ON c."C01Id" = r."RA01ControlId"
+
+          WHERE
+            c."C01CooperativaCodigo" =
+              ${input.cooperativaId}::uuid
+
+            AND c."C01PeriodoMes" =
+              ${input.periodoMes}
+
+            AND c."C01PeriodoAnio" =
+              ${input.periodoAnio}
+
+            AND c."C01Area" =
+              'CREDITO'
+
+            ${oficinaFilter}
+
+            AND (
+              LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
+                LOWER('Normal')
+
+              OR LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
+                LOWER('Préstamo Renovado')
+            )
+
+          GROUP BY tipo
+        `,
+        ),
+
+        input.productoId
+          ? this.$queryRaw<DistribucionRow[]>(
+            Prisma.sql`
+              SELECT
+                CASE
+                  WHEN LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
+                       LOWER('Normal')
+                    THEN 'NORMAL'
+
+                  WHEN LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
+                       LOWER('Préstamo Renovado')
+                    THEN 'RENOVADA'
+                END AS tipo,
+
+                COALESCE(
+                  SUM(r."RA01TotalCartera"),
+                  0
+                ) AS monto,
+
+                COUNT(*) AS "numeroPrestamos"
+
+              FROM "RA01Credito" r
+
+              INNER JOIN "C01ControlCarga" c
+                ON c."C01Id" = r."RA01ControlId"
+
+              WHERE
+                c."C01CooperativaCodigo" =
+                  ${input.cooperativaId}::uuid
+
+                AND c."C01PeriodoMes" =
+                  ${input.periodoMes}
+
+                AND c."C01PeriodoAnio" =
+                  ${input.periodoAnio}
+
+                AND c."C01Area" =
+                  'CREDITO'
+
+                ${oficinaFilter}
+
+                ${productoFilter}
+
+                AND (
+                  LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
+                    LOWER('Normal')
+
+                  OR LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
+                    LOWER('Préstamo Renovado')
+                )
+
+              GROUP BY tipo
+            `,
+          )
+          : Promise.resolve([]),
+      ]);
+
+    const buildSegmento = (
+      rows: DistribucionRow[],
+    ): CreditoTipoAutorizacionSegmentoOutput => {
+      const rowMap = new Map<
+        string,
+        {
+          monto: number;
+          numeroPrestamos: number;
+        }
+      >(
+        rows.map(
+          (row): [
+            string,
+            {
+              monto: number;
+              numeroPrestamos: number;
+            },
+          ] => [
+            row.tipo,
+            {
+              monto: this._toNumber(row.monto),
+              numeroPrestamos:
+                Number(row.numeroPrestamos),
+            },
+          ],
+        ),
+      );
+
+      const totalCartera =
+        Array.from(rowMap.values()).reduce(
+          (total, item) =>
+            total + item.monto,
+          0,
+        );
+
+      const numeroPrestamos =
+        Array.from(rowMap.values()).reduce(
+          (total, item) =>
+            total + item.numeroPrestamos,
+          0,
+        );
+
+      const distribucion =
+        tipoDefinitions.map((definition) => {
+          const item =
+            rowMap.get(definition.tipo) ?? {
+              monto: 0,
+              numeroPrestamos: 0,
+            };
+
+          return {
+            tipo: definition.tipo,
+
+            monto:
+            item.monto,
+
+            numeroPrestamos:
+            item.numeroPrestamos,
+
+            porcentaje:
+              totalCartera > 0
+                ? (
+                item.monto /
+                totalCartera
+              ) * 100
+                : 0,
+          };
+        });
+
+      return {
+        totalCartera,
+        numeroPrestamos,
+        distribucion,
+      };
+    };
+
+    const oficinaSegmento =
+      buildSegmento(oficinaRows);
+
+    const productoSegmento =
+      input.productoId
+        ? buildSegmento(productoRows)
+        : null;
+
+    return {
+      oficinaNumero:
+        input.oficina ?? null,
+
+      oficinaNombre:
+        input.oficina
+          ? sucursal?.R11Nom ??
+          input.oficina
+          : 'Global',
+
+      productoId:
+        input.productoId ?? null,
+
+      productoNombre,
+
+      productoCategoria,
+
+      periodoMes:
+      input.periodoMes,
+
+      periodoAnio:
+      input.periodoAnio,
+
+      oficina:
+      oficinaSegmento,
+
+      producto:
+      productoSegmento,
+    };
+  }
+
 
   //   ==================================
   //   HELPERS
