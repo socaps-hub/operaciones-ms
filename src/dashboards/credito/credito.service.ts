@@ -59,6 +59,8 @@ import {
   CreditoTipoAutorizacionOutput,
   CreditoTipoAutorizacionSegmentoOutput,
 } from './dto/outputs/credito-tipo-autorizacion.output';
+import { CreditoSituacionLegalInput } from './dto/inputs/credito-situacion-legal.input';
+import { CreditoSituacionLegalOutput } from './dto/outputs/credito-situacion-legal.output';
 
 type FortalezaProductoRow = {
   productoNombre: string;
@@ -78,10 +80,46 @@ type FortalezaResultado = {
   resto: CreditoFortalezaGrupoOutput;
 };
 
+type SituacionLegalKey =
+  | 'VIGENTE_SIN_PAGOS_VENCIDOS'
+  | 'VIGENTE_CON_PAGOS_VENCIDOS'
+  | 'VENCIDA_ADMINISTRATIVA'
+  | 'EN_LITIGIO';
+
+type SituacionLegalRow = {
+  situacion: SituacionLegalKey;
+  monto: string | number | bigint | Prisma.Decimal | null;
+  numeroPrestamos: bigint;
+};
+
+type SituacionLegalSegmento = {
+  monto: number;
+  numeroPrestamos: number;
+};
+
 @Injectable()
 export class CreditoService extends PrismaClient implements OnModuleInit {
   private readonly _logger = new Logger('CreditoService');
   private static readonly OFICINA_GLOBAL = 'Global';
+
+  private readonly _situacionLegalDefinitions = [
+    {
+      situacion: 'VIGENTE_SIN_PAGOS_VENCIDOS',
+      valorDb: 'Vig. sin Pagos Venc',
+    },
+    {
+      situacion: 'VIGENTE_CON_PAGOS_VENCIDOS',
+      valorDb: 'Vig. con Pagos Venc',
+    },
+    {
+      situacion: 'VENCIDA_ADMINISTRATIVA',
+      valorDb: 'Venc. Tramit Adm.',
+    },
+    {
+      situacion: 'EN_LITIGIO',
+      valorDb: 'Venc. en Litigio',
+    },
+  ] as const;
 
   async onModuleInit() {
     await this.$connect();
@@ -2754,32 +2792,32 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     const [sucursal, producto] = await Promise.all([
       input.oficina
         ? this.r11Sucursal.findFirst({
-          where: {
-            R11Coop_id: input.cooperativaId,
-            R11NumSuc: input.oficina,
-          },
-          select: {
-            R11Nom: true,
-          },
-        })
+            where: {
+              R11Coop_id: input.cooperativaId,
+              R11NumSuc: input.oficina,
+            },
+            select: {
+              R11Nom: true,
+            },
+          })
         : Promise.resolve(null),
 
       input.productoId
         ? this.r13Producto.findFirst({
-          where: {
-            R13Id: input.productoId,
-            R13Coop_id: input.cooperativaId,
-            R13Activ: true,
-          },
-          select: {
-            R13Nom: true,
-            categoria: {
-              select: {
-                R14Nom: true,
+            where: {
+              R13Id: input.productoId,
+              R13Coop_id: input.cooperativaId,
+              R13Activ: true,
+            },
+            select: {
+              R13Nom: true,
+              categoria: {
+                select: {
+                  R14Nom: true,
+                },
               },
             },
-          },
-        })
+          })
         : Promise.resolve(null),
     ]);
 
@@ -2812,19 +2850,13 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
 
     type DistribucionRow = {
       tipo: string;
-      monto:
-        | string
-        | number
-        | bigint
-        | Prisma.Decimal
-        | null;
+      monto: string | number | bigint | Prisma.Decimal | null;
       numeroPrestamos: bigint;
     };
 
-    const [oficinaRows, productoRows] =
-      await Promise.all([
-        this.$queryRaw<DistribucionRow[]>(
-          Prisma.sql`
+    const [oficinaRows, productoRows] = await Promise.all([
+      this.$queryRaw<DistribucionRow[]>(
+        Prisma.sql`
           SELECT
             CASE
               WHEN LOWER(TRIM(r."RA01TipoDeAutorizacion")) =
@@ -2873,10 +2905,10 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
 
           GROUP BY tipo
         `,
-        ),
+      ),
 
-        input.productoId
-          ? this.$queryRaw<DistribucionRow[]>(
+      input.productoId
+        ? this.$queryRaw<DistribucionRow[]>(
             Prisma.sql`
               SELECT
                 CASE
@@ -2929,8 +2961,8 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
               GROUP BY tipo
             `,
           )
-          : Promise.resolve([]),
-      ]);
+        : Promise.resolve([]),
+    ]);
 
     const buildSegmento = (
       rows: DistribucionRow[],
@@ -2943,7 +2975,9 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         }
       >(
         rows.map(
-          (row): [
+          (
+            row,
+          ): [
             string,
             {
               monto: number;
@@ -2953,53 +2987,38 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
             row.tipo,
             {
               monto: this._toNumber(row.monto),
-              numeroPrestamos:
-                Number(row.numeroPrestamos),
+              numeroPrestamos: Number(row.numeroPrestamos),
             },
           ],
         ),
       );
 
-      const totalCartera =
-        Array.from(rowMap.values()).reduce(
-          (total, item) =>
-            total + item.monto,
-          0,
-        );
+      const totalCartera = Array.from(rowMap.values()).reduce(
+        (total, item) => total + item.monto,
+        0,
+      );
 
-      const numeroPrestamos =
-        Array.from(rowMap.values()).reduce(
-          (total, item) =>
-            total + item.numeroPrestamos,
-          0,
-        );
+      const numeroPrestamos = Array.from(rowMap.values()).reduce(
+        (total, item) => total + item.numeroPrestamos,
+        0,
+      );
 
-      const distribucion =
-        tipoDefinitions.map((definition) => {
-          const item =
-            rowMap.get(definition.tipo) ?? {
-              monto: 0,
-              numeroPrestamos: 0,
-            };
+      const distribucion = tipoDefinitions.map((definition) => {
+        const item = rowMap.get(definition.tipo) ?? {
+          monto: 0,
+          numeroPrestamos: 0,
+        };
 
-          return {
-            tipo: definition.tipo,
+        return {
+          tipo: definition.tipo,
 
-            monto:
-            item.monto,
+          monto: item.monto,
 
-            numeroPrestamos:
-            item.numeroPrestamos,
+          numeroPrestamos: item.numeroPrestamos,
 
-            porcentaje:
-              totalCartera > 0
-                ? (
-                item.monto /
-                totalCartera
-              ) * 100
-                : 0,
-          };
-        });
+          porcentaje: totalCartera > 0 ? (item.monto / totalCartera) * 100 : 0,
+        };
+      });
 
       return {
         totalCartera,
@@ -3008,45 +3027,155 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       };
     };
 
-    const oficinaSegmento =
-      buildSegmento(oficinaRows);
+    const oficinaSegmento = buildSegmento(oficinaRows);
 
-    const productoSegmento =
-      input.productoId
-        ? buildSegmento(productoRows)
-        : null;
+    const productoSegmento = input.productoId
+      ? buildSegmento(productoRows)
+      : null;
 
     return {
-      oficinaNumero:
-        input.oficina ?? null,
+      oficinaNumero: input.oficina ?? null,
 
-      oficinaNombre:
-        input.oficina
-          ? sucursal?.R11Nom ??
-          input.oficina
-          : 'Global',
+      oficinaNombre: input.oficina
+        ? (sucursal?.R11Nom ?? input.oficina)
+        : 'Global',
 
-      productoId:
-        input.productoId ?? null,
+      productoId: input.productoId ?? null,
 
       productoNombre,
 
       productoCategoria,
 
-      periodoMes:
-      input.periodoMes,
+      periodoMes: input.periodoMes,
 
-      periodoAnio:
-      input.periodoAnio,
+      periodoAnio: input.periodoAnio,
 
-      oficina:
-      oficinaSegmento,
+      oficina: oficinaSegmento,
 
-      producto:
-      productoSegmento,
+      producto: productoSegmento,
     };
   }
 
+  public async getSituacionLegal(
+    input: CreditoSituacionLegalInput,
+  ): Promise<CreditoSituacionLegalOutput> {
+    const [oficinaNombre, producto] = await Promise.all([
+      this._resolveOficinaNombre(input.cooperativaId, input.oficina),
+
+      this._resolveProducto(input.cooperativaId, input.productoId),
+    ]);
+
+    const { productoNombre, productoCategoria } = producto;
+
+    const segmentoPromise = this._getSituacionLegalRows({
+      cooperativaId: input.cooperativaId,
+
+      periodoMes: input.periodoMes,
+
+      periodoAnio: input.periodoAnio,
+
+      oficina: input.oficina,
+
+      productoNombre,
+      productoCategoria,
+    });
+
+    const totalPorSituacionPromise = input.productoId
+      ? this._getSituacionLegalRows({
+          cooperativaId: input.cooperativaId,
+
+          periodoMes: input.periodoMes,
+
+          periodoAnio: input.periodoAnio,
+
+          oficina: input.oficina,
+        })
+      : Promise.resolve<SituacionLegalRow[]>([]);
+
+    const [segmentoRows, totalRows] = await Promise.all([
+      segmentoPromise,
+      totalPorSituacionPromise,
+    ]);
+
+    const segmentoMap = new Map<SituacionLegalKey, SituacionLegalSegmento>(
+      segmentoRows.map((row): [SituacionLegalKey, SituacionLegalSegmento] => [
+        row.situacion,
+        {
+          monto: this._toNumber(row.monto),
+
+          numeroPrestamos: Number(row.numeroPrestamos),
+        },
+      ]),
+    );
+
+    const totalPorSituacionMap = new Map<SituacionLegalKey, number>(
+      totalRows.map((row): [SituacionLegalKey, number] => [
+        row.situacion,
+        this._toNumber(row.monto),
+      ]),
+    );
+
+    const totalCartera = segmentoRows.reduce(
+      (acc, row) => acc + this._toNumber(row.monto),
+      0,
+    );
+
+    const numeroPrestamos = segmentoRows.reduce(
+      (acc, row) => acc + Number(row.numeroPrestamos),
+      0,
+    );
+
+    const situaciones = this._situacionLegalDefinitions.map((definition) => {
+      const segmento = segmentoMap.get(definition.situacion) ?? {
+        monto: 0,
+        numeroPrestamos: 0,
+      };
+
+      const carteraBanda = input.productoId
+        ? (totalPorSituacionMap.get(definition.situacion) ?? 0)
+        : segmento.monto;
+
+      const porcentaje = input.productoId
+        ? carteraBanda > 0
+          ? (segmento.monto / carteraBanda) * 100
+          : 0
+        : totalCartera > 0
+          ? (segmento.monto / totalCartera) * 100
+          : 0;
+
+      return {
+        situacion: definition.situacion,
+
+        monto: segmento.monto,
+
+        carteraBanda,
+
+        numeroPrestamos: segmento.numeroPrestamos,
+
+        porcentaje,
+      };
+    });
+
+    return {
+      oficinaNumero: input.oficina ?? null,
+
+      oficinaNombre,
+
+      productoId: input.productoId ?? null,
+
+      productoNombre,
+      productoCategoria,
+
+      periodoMes: input.periodoMes,
+
+      periodoAnio: input.periodoAnio,
+
+      totalCartera,
+      numeroPrestamos,
+
+      situaciones,
+    };
+  }
 
   //   ==================================
   //   HELPERS
@@ -3804,5 +3933,159 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
 
       colocacion: extremo.colocacion,
     };
+  }
+
+  private async _resolveProducto(
+    cooperativaId: string,
+    productoId?: string,
+  ): Promise<{
+    productoNombre: string | null;
+    productoCategoria: string | null;
+  }> {
+    if (!productoId) {
+      return {
+        productoNombre: null,
+        productoCategoria: null,
+      };
+    }
+
+    const producto = await this.r13Producto.findFirst({
+      where: {
+        R13Id: productoId,
+        R13Coop_id: cooperativaId,
+      },
+      select: {
+        R13Nom: true,
+        categoria: {
+          select: {
+            R14Nom: true,
+          },
+        },
+      },
+    });
+
+    if (!producto) {
+      throw new Error(`No se encontró el producto ${productoId}`);
+    }
+
+    return {
+      productoNombre: producto.R13Nom,
+      productoCategoria: producto.categoria.R14Nom,
+    };
+  }
+
+  private async _resolveOficinaNombre(
+    cooperativaId: string,
+    oficina?: string,
+  ): Promise<string> {
+    if (!oficina) {
+      return CreditoService.OFICINA_GLOBAL;
+    }
+
+    const sucursal = await this.r11Sucursal.findFirst({
+      where: {
+        R11Coop_id: cooperativaId,
+        R11NumSuc: oficina,
+      },
+      select: {
+        R11Nom: true,
+      },
+    });
+
+    return sucursal?.R11Nom ?? oficina;
+  }
+
+  private async _getSituacionLegalRows(params: {
+    cooperativaId: string;
+    periodoMes: number;
+    periodoAnio: number;
+    oficina?: string;
+    productoNombre?: string | null;
+    productoCategoria?: string | null;
+  }): Promise<SituacionLegalRow[]> {
+    const {
+      cooperativaId,
+      periodoMes,
+      periodoAnio,
+      oficina,
+      productoNombre,
+      productoCategoria,
+    } = params;
+
+    const oficinaFilter = oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const productoFilter =
+      productoNombre && productoCategoria
+        ? Prisma.sql`
+          AND LOWER(TRIM(r."RA01Categoria")) =
+              LOWER(TRIM(${productoNombre}))
+
+          AND LOWER(TRIM(r."RA01Tipo")) =
+              LOWER(TRIM(${productoCategoria}))
+        `
+        : Prisma.empty;
+
+    return this.$queryRaw<SituacionLegalRow[]>`
+    SELECT
+      CASE
+        WHEN LOWER(TRIM(r."RA01SituacionDelCredito"))
+          = LOWER('Vig. sin Pagos Venc')
+          THEN 'VIGENTE_SIN_PAGOS_VENCIDOS'
+
+        WHEN LOWER(TRIM(r."RA01SituacionDelCredito"))
+          = LOWER('Vig. con Pagos Venc')
+          THEN 'VIGENTE_CON_PAGOS_VENCIDOS'
+
+        WHEN LOWER(TRIM(r."RA01SituacionDelCredito"))
+          = LOWER('Venc. Tramit Adm.')
+          THEN 'VENCIDA_ADMINISTRATIVA'
+
+        WHEN LOWER(TRIM(r."RA01SituacionDelCredito"))
+          = LOWER('Venc. en Litigio')
+          THEN 'EN_LITIGIO'
+      END AS situacion,
+
+      COALESCE(
+        SUM(r."RA01TotalCartera"),
+        0
+      ) AS monto,
+
+      COUNT(*) AS "numeroPrestamos"
+
+    FROM "RA01Credito" r
+
+    INNER JOIN "C01ControlCarga" c
+      ON c."C01Id" = r."RA01ControlId"
+
+    WHERE
+      c."C01CooperativaCodigo" =
+        ${cooperativaId}::uuid
+
+      AND c."C01PeriodoMes" =
+        ${periodoMes}
+
+      AND c."C01PeriodoAnio" =
+        ${periodoAnio}
+
+      AND c."C01Area" = 'CREDITO'
+
+      ${oficinaFilter}
+      ${productoFilter}
+
+      AND LOWER(
+        TRIM(r."RA01SituacionDelCredito")
+      ) IN (
+        LOWER('Vig. sin Pagos Venc'),
+        LOWER('Vig. con Pagos Venc'),
+        LOWER('Venc. Tramit Adm.'),
+        LOWER('Venc. en Litigio')
+      )
+
+    GROUP BY situacion
+  `;
   }
 }

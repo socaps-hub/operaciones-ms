@@ -27,6 +27,8 @@ import { CreditoAmortizacionesVencidasInput } from './dto/inputs/credito-amortiz
 import { CreditoAmortizacionesVencidasOutput } from './dto/outputs/credito-amortizaciones-vencidas.output';
 import { CreditoTipoAutorizacionInput } from './dto/inputs/credito-tipo-autorizacion.input';
 import { CreditoTipoAutorizacionOutput } from './dto/outputs/credito-tipo-autorizacion.output';
+import { CreditoSituacionLegalInput } from './dto/inputs/credito-situacion-legal.input';
+import { CreditoSituacionLegalOutput } from './dto/outputs/credito-situacion-legal.output';
 
 @Controller()
 export class CreditoHandler {
@@ -137,5 +139,12 @@ export class CreditoHandler {
     @Payload() input: CreditoTipoAutorizacionInput,
   ): Promise<CreditoTipoAutorizacionOutput> {
     return this._service.getTipoAutorizacion(input);
+  }
+
+  @MessagePattern('operaciones.credito.getSituacionLegal')
+  public async getSituacionLegal(
+    @Payload() input: CreditoSituacionLegalInput,
+  ): Promise<CreditoSituacionLegalOutput> {
+    return this._service.getSituacionLegal(input);
   }
 }

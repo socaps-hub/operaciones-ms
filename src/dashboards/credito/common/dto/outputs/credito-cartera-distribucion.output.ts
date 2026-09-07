@@ -16,20 +16,15 @@ export class CreditoCarteraDistribucionRangoOutput {
 
 export class CreditoCarteraDistribucionOutput {
   oficinaNumero: string | null;
-
   oficinaNombre: string;
 
   productoId: string | null;
-
-  productoNombre: string;
-
+  productoNombre: string | null;
   productoCategoria: string | null;
 
   periodoMes: number;
-
   periodoAnio: number;
 
   totalCartera: number;
-
   numeroPrestamos: number;
 }
