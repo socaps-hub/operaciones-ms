@@ -1,23 +1,3 @@
-import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { CreditoCarteraSegmentoInput } from '../../common/dto/inputs/credito-cartera-segmento.input';
 
-export class CreditoAmortizacionesPactadasInput {
-  @IsUUID()
-  cooperativaId: string;
-
-  @IsInt()
-  @Min(1)
-  @Max(12)
-  periodoMes: number;
-
-  @IsInt()
-  @Min(2000)
-  periodoAnio: number;
-
-  @IsOptional()
-  @IsString()
-  oficina?: string;
-
-  @IsOptional()
-  @IsString()
-  productoId?: string;
-}
+export class CreditoAmortizacionesPactadasInput extends CreditoCarteraSegmentoInput {}

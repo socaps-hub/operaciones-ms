@@ -1,34 +1,10 @@
-export class CreditoDiasAtrasoRangoOutput {
-  rango: string;
-  desde: number;
-  hasta: number | null;
+import {
+  CreditoCarteraDistribucionOutput,
+  CreditoCarteraDistribucionRangoOutput,
+} from '../../common/dto/outputs/credito-cartera-distribucion.output';
 
-  monto: number;
+export class CreditoDiasAtrasoRangoOutput extends CreditoCarteraDistribucionRangoOutput {}
 
-  carteraBanda: number;
-
-  numeroPrestamos: number;
-  porcentaje: number;
-}
-
-export class CreditoDiasAtrasoOutput {
-  oficinaNumero: string | null;
-
-  oficinaNombre: string;
-
-  productoId: string | null;
-
-  productoNombre: string;
-
-  productoCategoria: string | null;
-
-  periodoMes: number;
-
-  periodoAnio: number;
-
-  totalCartera: number;
-
-  numeroPrestamos: number;
-
+export class CreditoDiasAtrasoOutput extends CreditoCarteraDistribucionOutput {
   rangos: CreditoDiasAtrasoRangoOutput[];
 }

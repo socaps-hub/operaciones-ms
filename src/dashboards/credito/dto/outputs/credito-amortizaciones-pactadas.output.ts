@@ -1,29 +1,10 @@
-export class CreditoAmortizacionesPactadasRangoOutput {
-  rango: string;
-  desde: number;
-  hasta: number | null;
+import {
+  CreditoCarteraDistribucionOutput,
+  CreditoCarteraDistribucionRangoOutput,
+} from '../../common/dto/outputs/credito-cartera-distribucion.output';
 
-  monto: number;
+export class CreditoAmortizacionesPactadasRangoOutput extends CreditoCarteraDistribucionRangoOutput {}
 
-  carteraBanda: number;
-
-  numeroPrestamos: number;
-  porcentaje: number;
-}
-
-export class CreditoAmortizacionesPactadasOutput {
-  oficinaNumero: string | null;
-  oficinaNombre: string;
-
-  productoId: string | null;
-  productoNombre: string;
-  productoCategoria: string | null;
-
-  periodoMes: number;
-  periodoAnio: number;
-
-  totalCartera: number;
-  numeroPrestamos: number;
-
+export class CreditoAmortizacionesPactadasOutput extends CreditoCarteraDistribucionOutput {
   rangos: CreditoAmortizacionesPactadasRangoOutput[];
 }

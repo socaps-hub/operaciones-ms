@@ -1,4 +1,3 @@
 import { CreditoCarteraSegmentoInput } from '../../common/dto/inputs/credito-cartera-segmento.input';
 
-
-export class CreditoDiasAtrasoInput extends CreditoCarteraSegmentoInput {}
+export class CreditoAmortizacionesVencidasInput extends CreditoCarteraSegmentoInput {}
