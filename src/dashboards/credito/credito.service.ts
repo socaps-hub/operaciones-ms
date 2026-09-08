@@ -61,41 +61,20 @@ import {
 } from './dto/outputs/credito-tipo-autorizacion.output';
 import { CreditoSituacionLegalInput } from './dto/inputs/credito-situacion-legal.input';
 import { CreditoSituacionLegalOutput } from './dto/outputs/credito-situacion-legal.output';
+import { CreditoTraspasosCarteraVencidaInput } from './dto/inputs/credito-traspasos-cartera-vencida.input';
+import { CreditoTraspasosCarteraVencidaOutput } from './dto/outputs/credito-traspasos-cartera-vencida.output';
+import {
+  CarteraAggregate,
+  CarteraAggregateRow,
+  FortalezaProductoRow,
+  FortalezaResultado,
+  SituacionLegalKey,
+  SituacionLegalRow,
+  SituacionLegalSegmento,
+  TraspasosCarteraMensualRow,
+  TraspasosCarteraMesResult,
+} from './types';
 
-type FortalezaProductoRow = {
-  productoNombre: string;
-  colocacion: number;
-  prestamos: number;
-};
-
-type FortalezaResultado = {
-  totalColocacion: number;
-  totalPrestamos: number;
-
-  mayores: CreditoFortalezaProductoOutput[];
-  menores: CreditoFortalezaProductoOutput[];
-
-  totalMayores: CreditoFortalezaGrupoOutput;
-  totalMenores: CreditoFortalezaGrupoOutput;
-  resto: CreditoFortalezaGrupoOutput;
-};
-
-type SituacionLegalKey =
-  | 'VIGENTE_SIN_PAGOS_VENCIDOS'
-  | 'VIGENTE_CON_PAGOS_VENCIDOS'
-  | 'VENCIDA_ADMINISTRATIVA'
-  | 'EN_LITIGIO';
-
-type SituacionLegalRow = {
-  situacion: SituacionLegalKey;
-  monto: string | number | bigint | Prisma.Decimal | null;
-  numeroPrestamos: bigint;
-};
-
-type SituacionLegalSegmento = {
-  monto: number;
-  numeroPrestamos: number;
-};
 
 @Injectable()
 export class CreditoService extends PrismaClient implements OnModuleInit {
@@ -3177,6 +3156,173 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     };
   }
 
+  public async getTraspasosCarteraVencida(
+    input: CreditoTraspasosCarteraVencidaInput,
+  ): Promise<CreditoTraspasosCarteraVencidaOutput> {
+    const { cooperativaId, periodoMes, periodoAnio, oficina, productoId } =
+      input;
+
+    const [oficinaNombre, producto] = await Promise.all([
+      this._resolveOficinaNombre(cooperativaId, oficina),
+
+      this._resolveProducto(cooperativaId, productoId),
+    ]);
+
+    const { productoNombre, productoCategoria } = producto;
+
+    /*
+     * Valores base que necesitamos SIEMPRE,
+     * independientemente del producto.
+     */
+    const [
+      carteraVencidaCooperativa,
+      carteraVencidaSucursal,
+      traspasosSucursal,
+    ] = await Promise.all([
+      /*
+       * GLOBAL:
+       * todas las sucursales,
+       * todos los productos.
+       */
+      this._getCarteraAggregate({
+        cooperativaId,
+        periodoMes,
+        periodoAnio,
+        soloVencida: true,
+      }),
+
+      /*
+       * Sucursal:
+       * todos los productos.
+       */
+      this._getCarteraAggregate({
+        cooperativaId,
+        periodoMes,
+        periodoAnio,
+        oficina,
+        soloVencida: true,
+      }),
+
+      /*
+       * Traspasos del mes:
+       * sucursal completa.
+       */
+      this._getTraspasosCarteraVencidaAggregate({
+        cooperativaId,
+        periodoMes,
+        periodoAnio,
+        oficina,
+      }),
+    ]);
+
+    /*
+     * Segmento seleccionado.
+     *
+     * Sin producto:
+     * segmento = sucursal completa.
+     *
+     * Con producto:
+     * segmento = producto en sucursal.
+     */
+    const [carteraVencidaSegmento, traspasosSegmento] = productoId
+      ? await Promise.all([
+          this._getCarteraAggregate({
+            cooperativaId,
+            periodoMes,
+            periodoAnio,
+            oficina,
+            productoNombre,
+            productoCategoria,
+            soloVencida: true,
+          }),
+
+          this._getTraspasosCarteraVencidaAggregate({
+            cooperativaId,
+            periodoMes,
+            periodoAnio,
+            oficina,
+            productoNombre,
+            productoCategoria,
+          }),
+        ])
+      : [carteraVencidaSucursal, traspasosSucursal];
+
+    const porcentajeSucursal =
+      carteraVencidaCooperativa.monto > 0
+        ? (carteraVencidaSucursal.monto / carteraVencidaCooperativa.monto) * 100
+        : 0;
+
+    const porcentajeSegmento =
+      carteraVencidaSucursal.monto > 0
+        ? (carteraVencidaSegmento.monto / carteraVencidaSucursal.monto) * 100
+        : 0;
+
+    const porcentajeTraspasosSucursal =
+      carteraVencidaSucursal.monto > 0
+        ? (traspasosSucursal.monto / carteraVencidaSucursal.monto) * 100
+        : 0;
+
+    const porcentajeTraspasosSegmento =
+      traspasosSucursal.monto > 0
+        ? (traspasosSegmento.monto / traspasosSucursal.monto) * 100
+        : 0;
+
+    const meses = await this._getTraspasosCarteraMensual({
+      cooperativaId,
+      periodoMes,
+      periodoAnio,
+      oficina,
+      productoNombre,
+      productoCategoria,
+    });
+
+    return {
+      oficinaNumero: oficina ?? null,
+      oficinaNombre,
+
+      productoId: productoId ?? null,
+      productoNombre,
+      productoCategoria,
+
+      periodoMes,
+      periodoAnio,
+
+      carteraVencidaCooperativa: {
+        monto: carteraVencidaCooperativa.monto,
+        numeroPrestamos: carteraVencidaCooperativa.numeroPrestamos,
+        porcentaje: null,
+      },
+
+      carteraVencidaSucursal: {
+        monto: carteraVencidaSucursal.monto,
+        numeroPrestamos: carteraVencidaSucursal.numeroPrestamos,
+        porcentaje: porcentajeSucursal,
+      },
+
+      carteraVencidaSegmento: {
+        monto: carteraVencidaSegmento.monto,
+        numeroPrestamos: carteraVencidaSegmento.numeroPrestamos,
+        porcentaje: porcentajeSegmento,
+      },
+
+      traspasosMesSucursal: {
+        monto: traspasosSucursal.monto,
+        numeroPrestamos: traspasosSucursal.numeroPrestamos,
+        porcentaje: porcentajeTraspasosSucursal,
+      },
+
+      traspasosMesSegmento: {
+        monto: traspasosSegmento.monto,
+        numeroPrestamos: traspasosSegmento.numeroPrestamos,
+        porcentaje: productoId
+          ? porcentajeTraspasosSegmento
+          : porcentajeTraspasosSucursal,
+      },
+
+      meses,
+    };
+  }
+
   //   ==================================
   //   HELPERS
   //   ==================================
@@ -4087,5 +4233,378 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
 
     GROUP BY situacion
   `;
+  }
+
+  private _mapCarteraAggregate(row?: CarteraAggregateRow): CarteraAggregate {
+    return {
+      monto: this._toNumber(row?.monto ?? 0),
+
+      numeroPrestamos: Number(row?.numeroPrestamos ?? 0),
+    };
+  }
+
+  private async _getCarteraAggregate(params: {
+    cooperativaId: string;
+    periodoMes: number;
+    periodoAnio: number;
+
+    oficina?: string;
+
+    productoNombre?: string | null;
+    productoCategoria?: string | null;
+
+    soloVencida?: boolean;
+  }): Promise<CarteraAggregate> {
+    const {
+      cooperativaId,
+      periodoMes,
+      periodoAnio,
+      oficina,
+      productoNombre,
+      productoCategoria,
+      soloVencida = false,
+    } = params;
+
+    const oficinaFilter = oficina
+      ? Prisma.sql`
+          AND r."RA01Sucursal" = ${oficina}
+        `
+      : Prisma.empty;
+
+    const productoFilter =
+      productoNombre && productoCategoria
+        ? Prisma.sql`
+          AND LOWER(TRIM(r."RA01Categoria"))
+              = LOWER(TRIM(${productoNombre}))
+
+          AND LOWER(TRIM(r."RA01Tipo"))
+              = LOWER(TRIM(${productoCategoria}))
+        `
+        : Prisma.empty;
+
+    const vencidaFilter = soloVencida
+      ? Prisma.sql`
+          AND LOWER(
+            TRIM(r."RA01VigenteOVencido")
+          ) = 'vencido'
+        `
+      : Prisma.empty;
+
+    const rows = await this.$queryRaw<CarteraAggregateRow[]>(
+      Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS monto,
+
+          COUNT(*)::bigint
+            AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id"
+             = r."RA01ControlId"
+
+        WHERE
+          c."C01CooperativaCodigo"
+            = ${cooperativaId}::uuid
+
+          AND c."C01PeriodoMes"
+            = ${periodoMes}
+
+          AND c."C01PeriodoAnio"
+            = ${periodoAnio}
+
+          AND c."C01Area"
+            = 'CREDITO'
+
+          ${oficinaFilter}
+
+          ${productoFilter}
+
+          ${vencidaFilter}
+      `,
+    );
+
+    return this._mapCarteraAggregate(rows[0]);
+  }
+
+  private _getFechaCambioSituacionSql() {
+    return Prisma.sql`
+    CASE
+      WHEN TRIM(
+        r."RA01FechaCambioSituacion"
+      ) ~ '^[0-9]+([.][0-9]+)?$'
+      THEN
+        DATE '1899-12-30'
+        +
+        FLOOR(
+          TRIM(
+            r."RA01FechaCambioSituacion"
+          )::numeric
+        )::integer
+
+      WHEN TRIM(
+        r."RA01FechaCambioSituacion"
+      ) ~ '^\\d{4}-\\d{2}-\\d{2}$'
+      THEN
+        TO_DATE(
+          TRIM(
+            r."RA01FechaCambioSituacion"
+          ),
+          'YYYY-MM-DD'
+        )
+
+      ELSE NULL
+    END
+  `;
+  }
+
+  private async _getTraspasosCarteraVencidaAggregate(params: {
+    cooperativaId: string;
+    periodoMes: number;
+    periodoAnio: number;
+
+    oficina?: string;
+
+    productoNombre?: string | null;
+    productoCategoria?: string | null;
+  }): Promise<CarteraAggregate> {
+    const {
+      cooperativaId,
+      periodoMes,
+      periodoAnio,
+      oficina,
+      productoNombre,
+      productoCategoria,
+    } = params;
+
+    const { startDate, endDate } = getMonthDateRange(periodoMes, periodoAnio);
+
+    const oficinaFilter = oficina
+      ? Prisma.sql`
+          AND r."RA01Sucursal" = ${oficina}
+        `
+      : Prisma.empty;
+
+    const productoFilter =
+      productoNombre && productoCategoria
+        ? Prisma.sql`
+          AND LOWER(TRIM(r."RA01Categoria"))
+              = LOWER(TRIM(${productoNombre}))
+
+          AND LOWER(TRIM(r."RA01Tipo"))
+              = LOWER(TRIM(${productoCategoria}))
+        `
+        : Prisma.empty;
+
+    const fechaCambio = this._getFechaCambioSituacionSql();
+
+    const rows = await this.$queryRaw<CarteraAggregateRow[]>(
+      Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS monto,
+
+          COUNT(*)::bigint
+            AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id"
+             = r."RA01ControlId"
+
+        WHERE
+          c."C01CooperativaCodigo"
+            = ${cooperativaId}::uuid
+
+          AND c."C01PeriodoMes"
+            = ${periodoMes}
+
+          AND c."C01PeriodoAnio"
+            = ${periodoAnio}
+
+          AND c."C01Area"
+            = 'CREDITO'
+
+          AND LOWER(
+            TRIM(r."RA01VigenteOVencido")
+          ) = 'vencido'
+
+          AND ${fechaCambio}
+            >= ${startDate}::date
+
+          AND ${fechaCambio}
+            < ${endDate}::date
+
+          ${oficinaFilter}
+
+          ${productoFilter}
+      `,
+    );
+
+    return this._mapCarteraAggregate(rows[0]);
+  }
+
+  private async _getTraspasosCarteraMensual(params: {
+    cooperativaId: string;
+    periodoMes: number;
+    periodoAnio: number;
+    oficina?: string;
+    productoNombre?: string | null;
+    productoCategoria?: string | null;
+  }): Promise<TraspasosCarteraMesResult[]> {
+    const {
+      cooperativaId,
+      periodoMes,
+      periodoAnio,
+      oficina,
+      productoNombre,
+      productoCategoria,
+    } = params;
+
+    const oficinaJoinFilter = oficina
+      ? Prisma.sql`
+          AND r."RA01Sucursal" = ${oficina}
+        `
+      : Prisma.empty;
+
+    /*
+     * Este filtro SOLO participa en el numerador:
+     * cartera vencida del segmento.
+     *
+     * No debe afectar carteraTotalSucursal.
+     */
+    const productoCondition =
+      productoNombre && productoCategoria
+        ? Prisma.sql`
+          AND LOWER(
+            TRIM(r."RA01Categoria")
+          ) = LOWER(
+            TRIM(${productoNombre})
+          )
+
+          AND LOWER(
+            TRIM(r."RA01Tipo")
+          ) = LOWER(
+            TRIM(${productoCategoria})
+          )
+        `
+        : Prisma.empty;
+
+    const rows = await this.$queryRaw<TraspasosCarteraMensualRow[]>(
+      Prisma.sql`
+        SELECT
+          c."C01PeriodoMes"
+            AS "periodoMes",
+
+          COALESCE(
+            SUM(
+              CASE
+                WHEN
+                  LOWER(
+                    TRIM(
+                      r."RA01VigenteOVencido"
+                    )
+                  ) = 'vencido'
+
+                  ${productoCondition}
+
+                THEN
+                  r."RA01TotalCartera"
+
+                ELSE
+                  0
+              END
+            ),
+            0
+          ) AS "carteraVencida",
+
+          COALESCE(
+            SUM(
+              r."RA01TotalCartera"
+            ),
+            0
+          ) AS "carteraTotalSucursal"
+
+        FROM "C01ControlCarga" c
+
+        LEFT JOIN "RA01Credito" r
+          ON r."RA01ControlId"
+             = c."C01Id"
+
+          ${oficinaJoinFilter}
+
+        WHERE
+          c."C01CooperativaCodigo"
+            = ${cooperativaId}::uuid
+
+          AND c."C01PeriodoAnio"
+            = ${periodoAnio}
+
+          AND c."C01PeriodoMes"
+            BETWEEN 1 AND ${periodoMes}
+
+          AND c."C01Area"
+            = 'CREDITO'
+
+        GROUP BY
+          c."C01PeriodoMes"
+
+        ORDER BY
+          c."C01PeriodoMes"
+      `,
+    );
+
+    const rowsMap = new Map<number, TraspasosCarteraMensualRow>(
+      rows.map((row): [number, TraspasosCarteraMensualRow] => [
+        Number(row.periodoMes),
+        row,
+      ]),
+    );
+
+    return Array.from(
+      {
+        length: periodoMes,
+      },
+      (_, index) => {
+        const mes = index + 1;
+
+        const row = rowsMap.get(mes);
+
+        /*
+         * No existe C01 para ese mes.
+         */
+        if (!row) {
+          return {
+            periodoMes: mes,
+            carteraVencida: null,
+            indiceMorosidad: null,
+            disponible: false,
+          };
+        }
+
+        const carteraVencida = this._toNumber(row.carteraVencida);
+
+        const carteraTotalSucursal = this._toNumber(row.carteraTotalSucursal);
+
+        const indiceMorosidad =
+          carteraTotalSucursal > 0
+            ? (carteraVencida / carteraTotalSucursal) * 100
+            : 0;
+
+        return {
+          periodoMes: mes,
+          carteraVencida,
+          indiceMorosidad,
+          disponible: true,
+        };
+      },
+    );
   }
 }
