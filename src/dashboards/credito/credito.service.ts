@@ -66,6 +66,7 @@ import { CreditoTraspasosCarteraVencidaOutput } from './dto/outputs/credito-tras
 import {
   CarteraAggregate,
   CarteraAggregateRow,
+  CountRow,
   FortalezaProductoRow,
   FortalezaResultado,
   SituacionLegalKey,
@@ -73,7 +74,14 @@ import {
   SituacionLegalSegmento,
   TraspasosCarteraMensualRow,
   TraspasosCarteraMesResult,
+  TraspasosCarteraVencidaDetalleRow,
 } from './types';
+import {
+  CreditoTraspasosCarteraVencidaDetalleInput
+} from './dto/inputs/credito-traspasos-cartera-vencida-detalle.input';
+import {
+  CreditoTraspasosCarteraVencidaDetalleOutput
+} from './dto/outputs/credito-traspasos-cartera-vencida-detalle.output';
 
 
 @Injectable()
@@ -3320,6 +3328,179 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       },
 
       meses,
+    };
+  }
+
+  public async getTraspasosCarteraVencidaDetalle(
+    input: CreditoTraspasosCarteraVencidaDetalleInput,
+  ): Promise<CreditoTraspasosCarteraVencidaDetalleOutput> {
+    const {
+      cooperativaId,
+      periodoMes,
+      periodoAnio,
+      oficina,
+      productoId,
+    } = input;
+
+    const page = Math.max(
+      Number(input.page) || 1,
+      1,
+    );
+
+    const pageSize = Math.min(
+      Math.max(Number(input.pageSize) || 10, 1),
+      50,
+    );
+
+    const offset = (page - 1) * pageSize;
+
+    const {
+      productoNombre,
+      productoCategoria,
+    } = await this._resolveProducto(
+      cooperativaId,
+      productoId,
+    );
+
+    const { startDate, endDate } =
+      getMonthDateRange(
+        periodoMes,
+        periodoAnio,
+      );
+
+    const fechaCambioSituacionSql =
+      this._getFechaCambioSituacionSql();
+
+    const oficinaCondition = oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const productoCondition =
+      productoId
+        ? Prisma.sql`
+          AND LOWER(TRIM(r."RA01Categoria")) =
+              LOWER(TRIM(${productoNombre}))
+          AND LOWER(TRIM(r."RA01Tipo")) =
+              LOWER(TRIM(${productoCategoria}))
+        `
+        : Prisma.empty;
+
+    const where = Prisma.sql`
+    c."C01CooperativaCodigo" =
+      ${cooperativaId}::uuid
+
+    AND c."C01PeriodoMes" =
+      ${periodoMes}
+
+    AND c."C01PeriodoAnio" =
+      ${periodoAnio}
+
+    AND c."C01Area" =
+      'CREDITO'
+
+    ${oficinaCondition}
+
+    ${productoCondition}
+
+    AND LOWER(
+      TRIM(r."RA01VigenteOVencido")
+    ) = 'vencido'
+
+    AND ${fechaCambioSituacionSql}
+      >= ${startDate}::date
+
+    AND ${fechaCambioSituacionSql}
+      < ${endDate}::date
+  `;
+
+    const [countRows, rows] = await Promise.all([
+      this.$queryRaw<CountRow[]>(
+        Prisma.sql`
+          SELECT
+            COUNT(*)::bigint AS "total"
+
+          FROM "RA01Credito" r
+
+          INNER JOIN "C01ControlCarga" c
+            ON c."C01Id" =
+               r."RA01ControlId"
+
+          WHERE ${where}
+        `,
+      ),
+
+      this.$queryRaw<TraspasosCarteraVencidaDetalleRow[]>(
+        Prisma.sql`
+          SELECT
+            r."RA01NumeroDeCredito"
+              AS "numeroCredito",
+
+            r."RA01Tipo"
+              AS "categoria",
+
+            r."RA01Categoria"
+              AS "producto",
+
+            r."RA01FEntrega"
+              AS "fechaEntrega",
+
+            r."RA01CEntregada"
+              AS "cantidadEntregada",
+
+            r."RA01TotalCartera"
+              AS "saldoTotal",
+
+            TO_CHAR(
+              ${fechaCambioSituacionSql},
+              'YYYY-MM-DD'
+            )
+              AS "fechaCambioSituacion"
+
+          FROM "RA01Credito" r
+
+          INNER JOIN "C01ControlCarga" c
+            ON c."C01Id" =
+               r."RA01ControlId"
+
+          WHERE ${where}
+
+          ORDER BY
+            ${fechaCambioSituacionSql} DESC,
+            r."RA01NumeroDeCredito" ASC
+
+          LIMIT ${pageSize}
+          OFFSET ${offset}
+        `,
+      ),
+    ]);
+
+    const total =
+      Number(countRows[0]?.total ?? 0);
+
+    return {
+      total,
+      page,
+      pageSize,
+
+      totalPages: total > 0 ? Math.ceil(total / pageSize) : 0,
+
+      items: rows.map((row) => ({
+        numeroCredito: row.numeroCredito,
+
+        categoria: row.categoria,
+
+        producto: row.producto,
+
+        fechaEntrega: row.fechaEntrega,
+
+        cantidadEntregada: Number(row.cantidadEntregada),
+
+        saldoTotal: this._toNumber(row.saldoTotal),
+
+        fechaCambioSituacion: row.fechaCambioSituacion,
+      })),
     };
   }
 

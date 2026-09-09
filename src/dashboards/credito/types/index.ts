@@ -63,3 +63,16 @@ export type TraspasosCarteraMesResult = {
   disponible: boolean;
 };
 
+export type TraspasosCarteraVencidaDetalleRow = {
+  numeroCredito: string;
+  categoria: string;
+  producto: string;
+  fechaEntrega: string;
+  cantidadEntregada: number;
+  saldoTotal: string | number | bigint | Prisma.Decimal | null;
+  fechaCambioSituacion: string;
+};
+
+export type CountRow = {
+  total: bigint;
+};
