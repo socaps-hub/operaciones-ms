@@ -76,3 +76,47 @@ export type TraspasosCarteraVencidaDetalleRow = {
 export type CountRow = {
   total: bigint;
 };
+
+export type RentabilidadTotalesRow = {
+  saldoCapital: string | number | bigint | Prisma.Decimal | null;
+
+  totalSaldo: string | number | bigint | Prisma.Decimal | null;
+
+  numeroPrestamos: bigint;
+
+  interesNormalCobrado: string | number | bigint | Prisma.Decimal | null;
+
+  interesMoratorioCobrado: string | number | bigint | Prisma.Decimal | null;
+
+  totalInteresCobrado: string | number | bigint | Prisma.Decimal | null;
+};
+
+export type RentabilidadItemRow = {
+  codigo: string | null;
+  nombre: string;
+  categoria: string | null;
+
+  saldoCapital: string | number | bigint | Prisma.Decimal | null;
+
+  totalSaldo: string | number | bigint | Prisma.Decimal | null;
+
+  numeroPrestamos: bigint;
+
+  interesNormalCobrado: string | number | bigint | Prisma.Decimal | null;
+
+  interesMoratorioCobrado: string | number | bigint | Prisma.Decimal | null;
+
+  totalInteresCobrado: string | number | bigint | Prisma.Decimal | null;
+};
+
+export type RentabilidadCountRow = {
+  total: bigint;
+};
+
+export type RentabilidadGraficaRow = {
+  codigo: string | null;
+  nombre: string;
+  categoria: string | null;
+
+  valor: string | number | bigint | Prisma.Decimal | null;
+};

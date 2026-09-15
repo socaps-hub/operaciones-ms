@@ -37,6 +37,8 @@ import {
 import {
   CreditoTraspasosCarteraVencidaDetalleOutput
 } from './dto/outputs/credito-traspasos-cartera-vencida-detalle.output';
+import { CreditoRentabilidadInput } from './dto/inputs/credito-rentabilidad.input';
+import { CreditoRentabilidadOutput } from './dto/outputs/credito-rentabilidad.output';
 
 @Controller()
 export class CreditoHandler {
@@ -168,5 +170,15 @@ export class CreditoHandler {
     @Payload() input: CreditoTraspasosCarteraVencidaDetalleInput,
   ): Promise<CreditoTraspasosCarteraVencidaDetalleOutput> {
     return this._service.getTraspasosCarteraVencidaDetalle(input);
+  }
+
+  //   =====================================
+  //   RENTABILIDAD
+  //   =====================================
+  @MessagePattern('operaciones.credito.getRentabilidad')
+  public async getRentabilidad(
+    @Payload() input: CreditoRentabilidadInput,
+  ): Promise<CreditoRentabilidadOutput> {
+    return this._service.getRentabilidad(input);
   }
 }

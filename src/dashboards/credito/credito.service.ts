@@ -69,6 +69,10 @@ import {
   CountRow,
   FortalezaProductoRow,
   FortalezaResultado,
+  RentabilidadCountRow,
+  RentabilidadGraficaRow,
+  RentabilidadItemRow,
+  RentabilidadTotalesRow,
   SituacionLegalKey,
   SituacionLegalRow,
   SituacionLegalSegmento,
@@ -82,6 +86,16 @@ import {
 import {
   CreditoTraspasosCarteraVencidaDetalleOutput
 } from './dto/outputs/credito-traspasos-cartera-vencida-detalle.output';
+import { CreditoRentabilidadInput } from './dto/inputs/credito-rentabilidad.input';
+import {
+  CreditoRentabilidadItemOutput,
+  CreditoRentabilidadOutput,
+  CreditoRentabilidadResumenOutput,
+} from './dto/outputs/credito-rentabilidad.output';
+import {
+  CreditoRentabilidadIdentificador,
+  CreditoRentabilidadModo,
+} from './enums/credito-rentabilidad.enum';
 
 
 @Injectable()
@@ -3334,42 +3348,23 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
   public async getTraspasosCarteraVencidaDetalle(
     input: CreditoTraspasosCarteraVencidaDetalleInput,
   ): Promise<CreditoTraspasosCarteraVencidaDetalleOutput> {
-    const {
-      cooperativaId,
-      periodoMes,
-      periodoAnio,
-      oficina,
-      productoId,
-    } = input;
+    const { cooperativaId, periodoMes, periodoAnio, oficina, productoId } =
+      input;
 
-    const page = Math.max(
-      Number(input.page) || 1,
-      1,
-    );
+    const page = Math.max(Number(input.page) || 1, 1);
 
-    const pageSize = Math.min(
-      Math.max(Number(input.pageSize) || 10, 1),
-      50,
-    );
+    const pageSize = Math.min(Math.max(Number(input.pageSize) || 10, 1), 50);
 
     const offset = (page - 1) * pageSize;
 
-    const {
-      productoNombre,
-      productoCategoria,
-    } = await this._resolveProducto(
+    const { productoNombre, productoCategoria } = await this._resolveProducto(
       cooperativaId,
       productoId,
     );
 
-    const { startDate, endDate } =
-      getMonthDateRange(
-        periodoMes,
-        periodoAnio,
-      );
+    const { startDate, endDate } = getMonthDateRange(periodoMes, periodoAnio);
 
-    const fechaCambioSituacionSql =
-      this._getFechaCambioSituacionSql();
+    const fechaCambioSituacionSql = this._getFechaCambioSituacionSql();
 
     const oficinaCondition = oficina
       ? Prisma.sql`
@@ -3377,15 +3372,14 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       `
       : Prisma.empty;
 
-    const productoCondition =
-      productoId
-        ? Prisma.sql`
+    const productoCondition = productoId
+      ? Prisma.sql`
           AND LOWER(TRIM(r."RA01Categoria")) =
               LOWER(TRIM(${productoNombre}))
           AND LOWER(TRIM(r."RA01Tipo")) =
               LOWER(TRIM(${productoCategoria}))
         `
-        : Prisma.empty;
+      : Prisma.empty;
 
     const where = Prisma.sql`
     c."C01CooperativaCodigo" =
@@ -3476,8 +3470,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       ),
     ]);
 
-    const total =
-      Number(countRows[0]?.total ?? 0);
+    const total = Number(countRows[0]?.total ?? 0);
 
     return {
       total,
@@ -3502,6 +3495,51 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         fechaCambioSituacion: row.fechaCambioSituacion,
       })),
     };
+  }
+
+  // ====================================
+  // RENTABILIDAD
+  // ====================================
+  public async getRentabilidad(
+    input: CreditoRentabilidadInput,
+  ): Promise<CreditoRentabilidadOutput> {
+    const {
+      cooperativaId,
+      periodoMes,
+      periodoAnio,
+      modo,
+      oficina,
+      identificador,
+    } = input;
+
+    const page = Math.max(Number(input.page) || 1, 1);
+
+    const pageSize = Math.min(Math.max(Number(input.pageSize) || 25, 1), 50);
+
+    const offset = (page - 1) * pageSize;
+
+    if (modo === CreditoRentabilidadModo.SUCURSALES) {
+      return this._getRentabilidadSucursales(
+        cooperativaId,
+        periodoMes,
+        periodoAnio,
+        identificador,
+        page,
+        pageSize,
+        offset,
+      );
+    }
+
+    return this._getRentabilidadProductos(
+      cooperativaId,
+      periodoMes,
+      periodoAnio,
+      oficina,
+      identificador!,
+      page,
+      pageSize,
+      offset,
+    );
   }
 
   //   ==================================
@@ -4787,5 +4825,637 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         };
       },
     );
+  }
+
+  private async _getRentabilidadSucursales(
+    cooperativaId: string,
+    periodoMes: number,
+    periodoAnio: number,
+    identificador: CreditoRentabilidadIdentificador,
+    page: number,
+    pageSize: number,
+    offset: number,
+  ): Promise<CreditoRentabilidadOutput> {
+    const where = Prisma.sql`
+      c."C01CooperativaCodigo" = ${cooperativaId}::uuid
+      AND c."C01PeriodoMes" = ${periodoMes}
+      AND c."C01PeriodoAnio" = ${periodoAnio}
+      AND c."C01Area" = 'CREDITO'
+    `;
+
+    const graficaValorSql =
+      identificador === CreditoRentabilidadIdentificador.MAYOR_INTERES_COBRADO
+        ? Prisma.sql`
+        COALESCE(
+          SUM(
+            COALESCE(r."RA01InteresNormalCobrado", 0)
+              +
+            COALESCE(r."RA01InteresMoratorioCobrado", 0)
+          ),
+          0
+        )
+      `
+        : Prisma.sql`
+        COALESCE(
+          SUM(r."RA01TotalCartera"),
+          0
+        )
+      `;
+
+    const [totalesRows, countRows, itemsRows, graficaRows] = await Promise.all([
+      this.$queryRaw<RentabilidadTotalesRow[]>(
+        Prisma.sql`
+          SELECT
+            COALESCE(
+              SUM(
+                COALESCE(r."RA01SaldoCapitalCartVig", 0)
+                  +
+                COALESCE(r."RA01SaldoCapitalCartVen", 0)
+              ),
+              0
+            ) AS "saldoCapital",
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            ) AS "totalSaldo",
+
+            COUNT(*)::bigint
+          AS "numeroPrestamos",
+
+            COALESCE(
+              SUM(r."RA01InteresNormalCobrado"),
+              0
+            ) AS "interesNormalCobrado",
+
+            COALESCE(
+              SUM(r."RA01InteresMoratorioCobrado"),
+              0
+            ) AS "interesMoratorioCobrado",
+
+            COALESCE(
+              SUM(
+                COALESCE(r."RA01InteresNormalCobrado", 0)
+                  +
+                COALESCE(r."RA01InteresMoratorioCobrado", 0)
+              ),
+              0
+            ) AS "totalInteresCobrado"
+
+          FROM "RA01Credito" r
+
+                 INNER JOIN "C01ControlCarga" c
+                            ON c."C01Id" = r."RA01ControlId"
+
+          WHERE ${where}
+        `,
+      ),
+
+      this.$queryRaw<RentabilidadCountRow[]>(
+        Prisma.sql`
+          SELECT
+            COUNT(*)::bigint AS "total"
+
+          FROM (
+                 SELECT
+                   r."RA01Sucursal"
+
+                 FROM "RA01Credito" r
+
+                        INNER JOIN "C01ControlCarga" c
+                                   ON c."C01Id" = r."RA01ControlId"
+
+                 WHERE ${where}
+
+                 GROUP BY
+                   r."RA01Sucursal"
+               ) grouped
+        `,
+      ),
+
+      this.$queryRaw<RentabilidadItemRow[]>(
+        Prisma.sql`
+          SELECT
+            r."RA01Sucursal"
+              AS "codigo",
+
+            COALESCE(
+              MAX(s."R11Nom"),
+              r."RA01Sucursal"
+            )
+              AS "nombre",
+
+            NULL::text
+          AS "categoria",
+
+            COALESCE(
+              SUM(
+                COALESCE(r."RA01SaldoCapitalCartVig", 0)
+                  +
+                COALESCE(r."RA01SaldoCapitalCartVen", 0)
+              ),
+              0
+            ) AS "saldoCapital",
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            ) AS "totalSaldo",
+
+            COUNT(*)::bigint
+          AS "numeroPrestamos",
+
+            COALESCE(
+              SUM(r."RA01InteresNormalCobrado"),
+              0
+            ) AS "interesNormalCobrado",
+
+            COALESCE(
+              SUM(r."RA01InteresMoratorioCobrado"),
+              0
+            ) AS "interesMoratorioCobrado",
+
+            COALESCE(
+              SUM(
+                COALESCE(r."RA01InteresNormalCobrado", 0)
+                  +
+                COALESCE(r."RA01InteresMoratorioCobrado", 0)
+              ),
+              0
+            ) AS "totalInteresCobrado"
+
+          FROM "RA01Credito" r
+
+                 INNER JOIN "C01ControlCarga" c
+                            ON c."C01Id" = r."RA01ControlId"
+
+                 LEFT JOIN "R11Sucursal" s
+                           ON s."R11NumSuc" = r."RA01Sucursal"
+                             AND s."R11Coop_id" = ${cooperativaId}::uuid
+
+          WHERE ${where}
+
+          GROUP BY
+            r."RA01Sucursal"
+
+          ORDER BY
+            "totalSaldo" DESC,
+            "nombre" ASC
+
+            LIMIT ${pageSize}
+          OFFSET ${offset}
+        `,
+      ),
+
+      this.$queryRaw<RentabilidadGraficaRow[]>(
+        Prisma.sql`
+          SELECT
+            r."RA01Sucursal"
+              AS "codigo",
+
+            COALESCE(
+              MAX(s."R11Nom"),
+              r."RA01Sucursal"
+            )
+              AS "nombre",
+
+            NULL::text
+          AS "categoria",
+
+            ${graficaValorSql}
+              AS "valor"
+
+          FROM "RA01Credito" r
+
+                 INNER JOIN "C01ControlCarga" c
+                            ON c."C01Id" = r."RA01ControlId"
+
+                 LEFT JOIN "R11Sucursal" s
+                           ON s."R11NumSuc" = r."RA01Sucursal"
+                             AND s."R11Coop_id" = ${cooperativaId}::uuid
+
+          WHERE ${where}
+
+          GROUP BY
+            r."RA01Sucursal"
+
+          ORDER BY
+            "valor" DESC,
+            "nombre" ASC
+        `,
+      ),
+    ]);
+
+    const totales = this._mapRentabilidadTotales(totalesRows[0]);
+
+    const total = Number(countRows[0]?.total ?? 0);
+
+    const items = itemsRows.map((row) =>
+      this._mapRentabilidadItem(row, totales),
+    );
+
+    return {
+      modo: CreditoRentabilidadModo.SUCURSALES,
+
+      oficinaNumero: null,
+      oficinaNombre: 'Global',
+
+      periodoMes,
+      periodoAnio,
+
+      identificador,
+
+      total,
+      page,
+      pageSize,
+
+      totalPages: total > 0 ? Math.ceil(total / pageSize) : 0,
+
+      totales,
+
+      items,
+
+      top5: [],
+
+      grafica: graficaRows.map((row) => ({
+        codigo: row.codigo,
+        nombre: row.nombre,
+        categoria: row.categoria,
+        valor: this._toNumber(row.valor),
+      })),
+    };
+  }
+
+  private _mapRentabilidadTotales(
+    row: RentabilidadTotalesRow | undefined,
+  ): CreditoRentabilidadResumenOutput {
+    return {
+      saldoCapital: this._toNumber(row?.saldoCapital),
+
+      totalSaldo: this._toNumber(row?.totalSaldo),
+
+      numeroPrestamos: Number(row?.numeroPrestamos ?? 0),
+
+      interesNormalCobrado: this._toNumber(row?.interesNormalCobrado),
+
+      interesMoratorioCobrado: this._toNumber(row?.interesMoratorioCobrado),
+
+      totalInteresCobrado: this._toNumber(row?.totalInteresCobrado),
+    };
+  }
+
+  private _mapRentabilidadItem(
+    row: RentabilidadItemRow,
+    totales: CreditoRentabilidadResumenOutput,
+  ): CreditoRentabilidadItemOutput {
+    const totalSaldo = this._toNumber(row.totalSaldo);
+
+    const totalInteresCobrado = this._toNumber(row.totalInteresCobrado);
+
+    return {
+      codigo: row.codigo,
+
+      nombre: row.nombre,
+
+      categoria: row.categoria,
+
+      saldoCapital: this._toNumber(row.saldoCapital),
+
+      totalSaldo,
+
+      numeroPrestamos: Number(row.numeroPrestamos),
+
+      porcentajeSaldo:
+        totales.totalSaldo > 0 ? (totalSaldo / totales.totalSaldo) * 100 : 0,
+
+      interesNormalCobrado: this._toNumber(row.interesNormalCobrado),
+
+      interesMoratorioCobrado: this._toNumber(row.interesMoratorioCobrado),
+
+      totalInteresCobrado,
+
+      porcentajeInteres:
+        totales.totalInteresCobrado > 0
+          ? (totalInteresCobrado / totales.totalInteresCobrado) * 100
+          : 0,
+    };
+  }
+
+  private async _getRentabilidadProductos(
+    cooperativaId: string,
+    periodoMes: number,
+    periodoAnio: number,
+    oficina: string | undefined,
+    identificador: CreditoRentabilidadIdentificador,
+    page: number,
+    pageSize: number,
+    offset: number,
+  ): Promise<CreditoRentabilidadOutput> {
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+      AND r."RA01Sucursal" = ${oficina}
+    `
+      : Prisma.empty;
+
+    const where = Prisma.sql`
+      c."C01CooperativaCodigo" = ${cooperativaId}::uuid
+      AND c."C01PeriodoMes" = ${periodoMes}
+      AND c."C01PeriodoAnio" = ${periodoAnio}
+      AND c."C01Area" = 'CREDITO'
+      ${oficinaWhere}
+    `;
+
+    const orderBy =
+      identificador === CreditoRentabilidadIdentificador.MAYOR_INTERES_COBRADO
+        ? Prisma.sql`
+          "totalInteresCobrado" DESC,
+          "nombre" ASC,
+          "categoria" ASC
+        `
+        : Prisma.sql`
+          "totalSaldo" DESC,
+          "nombre" ASC,
+          "categoria" ASC
+        `;
+
+    const [totalesRows, countRows, itemsRows, topRows, oficinaRows] =
+      await Promise.all([
+        this.$queryRaw<RentabilidadTotalesRow[]>(
+          Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(
+              COALESCE(r."RA01SaldoCapitalCartVig", 0)
+              +
+              COALESCE(r."RA01SaldoCapitalCartVen", 0)
+            ),
+            0
+          ) AS "saldoCapital",
+
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS "totalSaldo",
+
+          COUNT(*)::bigint
+            AS "numeroPrestamos",
+
+          COALESCE(
+            SUM(r."RA01InteresNormalCobrado"),
+            0
+          ) AS "interesNormalCobrado",
+
+          COALESCE(
+            SUM(r."RA01InteresMoratorioCobrado"),
+            0
+          ) AS "interesMoratorioCobrado",
+
+          COALESCE(
+            SUM(
+              COALESCE(r."RA01InteresNormalCobrado", 0)
+              +
+              COALESCE(r."RA01InteresMoratorioCobrado", 0)
+            ),
+            0
+          ) AS "totalInteresCobrado"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        WHERE ${where}
+      `,
+        ),
+
+        this.$queryRaw<RentabilidadCountRow[]>(
+          Prisma.sql`
+        SELECT
+          COUNT(*)::bigint AS "total"
+
+        FROM (
+          SELECT
+            r."RA01Categoria",
+            r."RA01Tipo"
+
+          FROM "RA01Credito" r
+
+          INNER JOIN "C01ControlCarga" c
+            ON c."C01Id" = r."RA01ControlId"
+
+          WHERE ${where}
+
+          GROUP BY
+            r."RA01Categoria",
+            r."RA01Tipo"
+        ) grouped
+      `,
+        ),
+
+        this.$queryRaw<RentabilidadItemRow[]>(
+          Prisma.sql`
+        SELECT
+          NULL::text AS "codigo",
+
+          r."RA01Categoria"
+            AS "nombre",
+
+          r."RA01Tipo"
+            AS "categoria",
+
+          COALESCE(
+            SUM(
+              COALESCE(r."RA01SaldoCapitalCartVig", 0)
+              +
+              COALESCE(r."RA01SaldoCapitalCartVen", 0)
+            ),
+            0
+          ) AS "saldoCapital",
+
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS "totalSaldo",
+
+          COUNT(*)::bigint
+            AS "numeroPrestamos",
+
+          COALESCE(
+            SUM(r."RA01InteresNormalCobrado"),
+            0
+          ) AS "interesNormalCobrado",
+
+          COALESCE(
+            SUM(r."RA01InteresMoratorioCobrado"),
+            0
+          ) AS "interesMoratorioCobrado",
+
+          COALESCE(
+            SUM(
+              COALESCE(r."RA01InteresNormalCobrado", 0)
+              +
+              COALESCE(r."RA01InteresMoratorioCobrado", 0)
+            ),
+            0
+          ) AS "totalInteresCobrado"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        WHERE ${where}
+
+        GROUP BY
+          r."RA01Categoria",
+          r."RA01Tipo"
+
+        ORDER BY
+          ${orderBy}
+
+        LIMIT ${pageSize}
+        OFFSET ${offset}
+      `,
+        ),
+
+        this.$queryRaw<RentabilidadItemRow[]>(
+          Prisma.sql`
+        SELECT
+          NULL::text AS "codigo",
+
+          r."RA01Categoria"
+            AS "nombre",
+
+          r."RA01Tipo"
+            AS "categoria",
+
+          COALESCE(
+            SUM(
+              COALESCE(r."RA01SaldoCapitalCartVig", 0)
+              +
+              COALESCE(r."RA01SaldoCapitalCartVen", 0)
+            ),
+            0
+          ) AS "saldoCapital",
+
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS "totalSaldo",
+
+          COUNT(*)::bigint
+            AS "numeroPrestamos",
+
+          COALESCE(
+            SUM(r."RA01InteresNormalCobrado"),
+            0
+          ) AS "interesNormalCobrado",
+
+          COALESCE(
+            SUM(r."RA01InteresMoratorioCobrado"),
+            0
+          ) AS "interesMoratorioCobrado",
+
+          COALESCE(
+            SUM(
+              COALESCE(r."RA01InteresNormalCobrado", 0)
+              +
+              COALESCE(r."RA01InteresMoratorioCobrado", 0)
+            ),
+            0
+          ) AS "totalInteresCobrado"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        WHERE ${where}
+
+        GROUP BY
+          r."RA01Categoria",
+          r."RA01Tipo"
+
+        ORDER BY
+          ${orderBy}
+
+        LIMIT 5
+      `,
+        ),
+
+        oficina
+          ? this.$queryRaw<
+              {
+                numero: string;
+                nombre: string;
+              }[]
+            >(
+              Prisma.sql`
+                SELECT
+                  s."R11NumSuc" AS "numero",
+                  s."R11Nom" AS "nombre"
+        
+                FROM "R11Sucursal" s
+        
+                WHERE
+                  s."R11Coop_id" = ${cooperativaId}::uuid
+                  AND s."R11NumSuc" = ${oficina}
+        
+                LIMIT 1
+              `,
+            )
+          : Promise.resolve([]),
+      ]);
+
+    const totales = this._mapRentabilidadTotales(totalesRows[0]);
+
+    const total = Number(countRows[0]?.total ?? 0);
+
+    const items = itemsRows.map((row) =>
+      this._mapRentabilidadItem(row, totales),
+    );
+
+    const top5 = topRows.map((row) => this._mapRentabilidadItem(row, totales));
+
+    const oficinaRow = oficinaRows[0];
+
+    return {
+      modo: CreditoRentabilidadModo.PRODUCTOS,
+
+      oficinaNumero: oficina ?? null,
+
+      oficinaNombre: oficinaRow?.nombre ?? CreditoService.OFICINA_GLOBAL,
+
+      periodoMes,
+      periodoAnio,
+
+      identificador,
+
+      total,
+      page,
+      pageSize,
+
+      totalPages: total > 0 ? Math.ceil(total / pageSize) : 0,
+
+      totales,
+
+      items,
+
+      top5,
+
+      grafica: top5.map((item) => ({
+        codigo: item.codigo,
+
+        nombre: item.nombre,
+
+        categoria: item.categoria,
+
+        valor:
+          identificador ===
+          CreditoRentabilidadIdentificador.MAYOR_INTERES_COBRADO
+            ? item.totalInteresCobrado
+            : item.totalSaldo,
+      })),
+    };
   }
 }

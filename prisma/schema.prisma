@@ -722,6 +722,21 @@ model OP01MetaColocacion {
   @@index([OP01ControlId, OP01SucursalNumero, OP01PeriodoMes])
 }
 
+model OP02UsuarioAlias {
+  OP02Id             Int    @id @default(autoincrement())
+  OP02CooperativaId  String @db.Uuid
+  OP02CodigoLogico   String
+  OP02R12Ni          String
+  OP02SucursalNumero String
+
+  OP02CreadoEn      DateTime @default(now())
+  OP02ActualizadoEn DateTime @updatedAt
+
+  @@unique([OP02CooperativaId, OP02R12Ni])
+  @@index([OP02CooperativaId, OP02CodigoLogico])
+  @@index([OP02CooperativaId, OP02SucursalNumero])
+}
+
 //* AUDITORIA
 // Crédito
 model A01MuestraSeleccionCredito {
