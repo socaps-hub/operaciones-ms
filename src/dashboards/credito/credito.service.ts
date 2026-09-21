@@ -69,6 +69,13 @@ import {
   CountRow,
   FortalezaProductoRow,
   FortalezaResultado,
+  ProductividadColocacionRow,
+  ProductividadDistribucionColocacionRow,
+  ProductividadDistribucionSaldoRow,
+  ProductividadEjecutivoColocacionRow,
+  ProductividadEjecutivoRow,
+  ProductividadGraficasEjecutivoRow,
+  ProductividadSaldoRow,
   RentabilidadCountRow,
   RentabilidadGraficaRow,
   RentabilidadItemRow,
@@ -96,6 +103,47 @@ import {
   CreditoRentabilidadIdentificador,
   CreditoRentabilidadModo,
 } from './enums/credito-rentabilidad.enum';
+import {
+  CreditoProductividadEjecutivosFiltrosInput
+} from './dto/inputs/credito-productividad-ejecutivos-filtros.input';
+import { CreditoProductividadEjecutivosFiltrosOutput } from './dto/outputs/credito-productividad-ejecutivos.output';
+import { CreditoProductividadOficinaInput } from './dto/inputs/credito-productividad-oficina.input';
+import { CreditoProductividadOficinaOutput } from './dto/outputs/credito-productividad-colocacion.output';
+import { CreditoProductividadEjecutivoInput } from './dto/inputs/credito-productividad-ejecutivo.input';
+import {
+  CreditoProductividadEjecutivoColocacionOutput,
+  CreditoProductividadEjecutivoOutput,
+} from './dto/outputs/credito-productividad-ejecutivo.output';
+import {
+  CreditoProductividadGraficasEjecutivoOutput
+} from './dto/outputs/credito-productividad-graficas-ejecutivo.output';
+import {
+  CreditoProductividadTipoAutorizacionOutput,
+} from './dto/outputs/credito-productividad-tipo-autorizacion.output';
+import { CreditoProductividadTipoPagoOutput } from './dto/outputs/credito-productividad-tipo-pago.output';
+import {
+  CreditoProductividadDistribucionPeriodoOutput,
+  CreditoProductividadDistribucionSaldoOutput,
+} from './dto/outputs/credito-productividad-distribucion.output';
+import { CreditoProductividadTipoSocioOutput } from './dto/outputs/credito-productividad-tipo-socio.output';
+import { CreditoProductividadClasificacionOutput } from './dto/outputs/credito-productivad-clasificacion.output';
+import {
+  CreditoProductividadSituacionItemOutput,
+  CreditoProductividadSituacionOutput,
+} from './dto/outputs/credito-productividad-situacion.output';
+import { CreditoProductividadComportamientoOutput } from './dto/outputs/credito-productividad-comportamiento.output';
+import {
+  CreditoProductividadProduccionMesOutput,
+  CreditoProductividadRankingAcumuladoResumenOutput,
+  CreditoProductividadRankingMensualResumenOutput,
+  CreditoProductividadRankingResumenOutput,
+  CreditoProductividadRankingSucursalOutput,
+} from './dto/outputs/credito-productividad-ranking-resumen.output';
+import { CreditoProductividadRankingPageInput } from './dto/inputs/credito-productividad-ranking-page.input';
+import { CreditoProductividadRankingMensualOutput } from './dto/outputs/credito-productividad-ranking-mensual.output';
+import {
+  CreditoProductividadRankingAcumuladoOutput
+} from './dto/outputs/credito-productividad-ranking-acumulado.output';
 
 
 @Injectable()
@@ -3542,6 +3590,1564 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     );
   }
 
+  // ====================================
+  // PRODUCTIVIDAD - EJECUTIVOS
+  // ====================================
+  public async getProductividadEjecutivosFiltros(
+    input: CreditoProductividadEjecutivosFiltrosInput,
+  ): Promise<CreditoProductividadEjecutivosFiltrosOutput> {
+    const { cooperativaId, oficina } = input;
+
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        AND s."R11NumSuc" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const rows = await this.$queryRaw<ProductividadEjecutivoRow[]>(
+      Prisma.sql`
+        SELECT DISTINCT ON (
+          COALESCE(
+            alias."OP02CodigoLogico",
+            u."R12Ni"
+          )
+        )
+          COALESCE(
+            alias."OP02CodigoLogico",
+            u."R12Ni"
+          ) AS "codigo",
+
+          COALESCE(
+            logico."R12Nom",
+            u."R12Nom"
+          ) AS "nombre"
+
+        FROM "R12Usuario" u
+
+        INNER JOIN "R11Sucursal" s
+          ON s."R11Id" = u."R12Suc_id"
+          AND s."R11Coop_id" = u."R12Coop_id"
+
+        LEFT JOIN "OP02UsuarioAlias" alias
+          ON alias."OP02CooperativaId" = u."R12Coop_id"
+          AND alias."OP02R12Ni" = u."R12Ni"
+
+        LEFT JOIN "R12Usuario" logico
+          ON logico."R12Ni" = alias."OP02CodigoLogico"
+          AND logico."R12Coop_id" = u."R12Coop_id"
+
+        WHERE
+          u."R12Coop_id" = ${cooperativaId}::uuid
+
+          AND u."R12Rol" = 'ejecutivo'
+
+          AND u."R12Activ" = true
+
+          ${oficinaWhere}
+
+        ORDER BY
+          COALESCE(
+            alias."OP02CodigoLogico",
+            u."R12Ni"
+          ) ASC,
+          COALESCE(
+            logico."R12Nom",
+            u."R12Nom"
+          ) ASC
+      `,
+    );
+
+    return {
+      ejecutivos: rows,
+    };
+  }
+
+  public async getProductividadOficina(
+    input: CreditoProductividadOficinaInput,
+  ): Promise<CreditoProductividadOficinaOutput> {
+    const { cooperativaId, oficina, periodoMes, periodoAnio } = input;
+
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const inicioMes = `${periodoAnio}-${String(periodoMes).padStart(2, '0')}-01`;
+
+    const siguienteMesDate =
+      periodoMes === 12
+        ? new Date(periodoAnio + 1, 0, 1)
+        : new Date(periodoAnio, periodoMes, 1);
+
+    const finMes = `${siguienteMesDate.getFullYear()}-${String(
+      siguienteMesDate.getMonth() + 1,
+    ).padStart(2, '0')}-01`;
+
+    const [
+      acumuladoRows,
+      delAnioRows,
+      delMesRows,
+      saldoSeleccionadoRows,
+      saldoCooperativaRows,
+    ] = await Promise.all([
+      // 1. ACUMULADO
+      this.$queryRaw<ProductividadColocacionRow[]>(
+        Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "monto",
+
+          COUNT(*) AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" = ${periodoAnio}
+          AND c."C01PeriodoMes" = ${periodoMes}
+
+          ${oficinaWhere}
+      `,
+      ),
+
+      // 2. DEL AÑO
+      this.$queryRaw<ProductividadColocacionRow[]>(
+        Prisma.sql`
+          SELECT
+            COALESCE(
+              SUM(r."RA01CEntregada"),
+              0
+            ) AS "monto",
+
+            COUNT(*) AS "numeroPrestamos"
+
+          FROM "RA01Credito" r
+
+         INNER JOIN "C01ControlCarga" c
+                    ON c."C01Id" = r."RA01ControlId"
+
+          WHERE
+            c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+            AND c."C01Area" = 'CREDITO'
+      
+            AND c."C01PeriodoAnio" =
+                  ${periodoAnio}
+
+            AND c."C01PeriodoMes" <=
+            ${periodoMes}
+
+            AND EXTRACT(
+            YEAR FROM TO_DATE(
+            r."RA01FEntrega",
+            'YYYY-MM-DD'
+            )
+            ) = c."C01PeriodoAnio"
+
+            AND EXTRACT(
+            MONTH FROM TO_DATE(
+            r."RA01FEntrega",
+            'YYYY-MM-DD'
+            )
+            ) = c."C01PeriodoMes"
+
+            ${oficinaWhere}
+        `,
+      ),
+
+      // 3. DEL MES
+      this.$queryRaw<ProductividadColocacionRow[]>(
+        Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "monto",
+
+          COUNT(*) AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" = ${periodoAnio}
+          AND c."C01PeriodoMes" = ${periodoMes}
+
+          AND TO_DATE(
+            r."RA01FEntrega",
+            'YYYY-MM-DD'
+          ) >= TO_DATE(
+            ${inicioMes},
+            'YYYY-MM-DD'
+          )
+
+          AND TO_DATE(
+            r."RA01FEntrega",
+            'YYYY-MM-DD'
+          ) < TO_DATE(
+            ${finMes},
+            'YYYY-MM-DD'
+          )
+
+          ${oficinaWhere}
+      `,
+      ),
+
+      // 4. SALDO DEL SEGMENTO SELECCIONADO
+      this.$queryRaw<ProductividadSaldoRow[]>(
+        Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS "saldo"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+
+          ${oficinaWhere}
+      `,
+      ),
+
+      // 5. SALDO TOTAL COOPERATIVA
+      this.$queryRaw<ProductividadSaldoRow[]>(
+        Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS "saldo"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+      `,
+      ),
+    ]);
+
+    const acumulado = acumuladoRows[0];
+    const delAnio = delAnioRows[0];
+    const delMes = delMesRows[0];
+
+    const saldoSeleccionado = this._toNumber(saldoSeleccionadoRows[0]?.saldo);
+
+    const saldoCooperativa = this._toNumber(saldoCooperativaRows[0]?.saldo);
+
+    const saldoResto = Math.max(saldoCooperativa - saldoSeleccionado, 0);
+
+    const porcentajeSeleccionado =
+      saldoCooperativa > 0 ? (saldoSeleccionado / saldoCooperativa) * 100 : 0;
+
+    const porcentajeResto =
+      saldoCooperativa > 0 ? (saldoResto / saldoCooperativa) * 100 : 0;
+
+    return {
+      acumulado: {
+        monto: this._toNumber(acumulado?.monto),
+        numeroPrestamos: this._toNumber(acumulado?.numeroPrestamos),
+      },
+
+      delAnio: {
+        monto: this._toNumber(delAnio?.monto),
+        numeroPrestamos: this._toNumber(delAnio?.numeroPrestamos),
+      },
+
+      delMes: {
+        monto: this._toNumber(delMes?.monto),
+        numeroPrestamos: this._toNumber(delMes?.numeroPrestamos),
+      },
+
+      saldo: saldoSeleccionado,
+
+      participacion: {
+        saldoSeleccionado,
+        porcentajeSeleccionado,
+        saldoResto,
+        porcentajeResto,
+      },
+    };
+  }
+
+  public async getProductividadEjecutivo(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadEjecutivoOutput> {
+    const { cooperativaId, oficina, ejecutivo, periodoMes, periodoAnio } =
+      input;
+
+    const usuarioJoin = this._buildProductividadUsuarioJoin();
+
+    const ejecutivoWhere = this._buildProductividadEjecutivoWhere(ejecutivo);
+
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const inicioMes = `${periodoAnio}-${String(periodoMes).padStart(2, '0')}-01`;
+
+    const siguienteMesDate =
+      periodoMes === 12
+        ? new Date(periodoAnio + 1, 0, 1)
+        : new Date(periodoAnio, periodoMes, 1);
+
+    const finMes = `${siguienteMesDate.getFullYear()}-${String(
+      siguienteMesDate.getMonth() + 1,
+    ).padStart(2, '0')}-01`;
+
+    const [acumuladoRows, delAnioRows, delMesRows, saldoRows] =
+      await Promise.all([
+        // 1. ACUMULADO
+        this.$queryRaw<ProductividadEjecutivoColocacionRow[]>(
+          Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(
+              CASE
+                WHEN ${ejecutivoWhere}
+                THEN r."RA01CEntregada"
+                ELSE 0
+              END
+            ),
+            0
+          ) AS "montoEjecutivo",
+
+          COUNT(*) FILTER (
+            WHERE ${ejecutivoWhere}
+          ) AS "numeroPrestamos",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "montoBase"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+
+          ${oficinaWhere}
+      `,
+        ),
+
+        // 2. DEL AÑO
+        this.$queryRaw<ProductividadEjecutivoColocacionRow[]>(
+          Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(
+              CASE
+                WHEN ${ejecutivoWhere}
+                THEN r."RA01CEntregada"
+                ELSE 0
+              END
+            ),
+            0
+          ) AS "montoEjecutivo",
+
+          COUNT(*) FILTER (
+            WHERE ${ejecutivoWhere}
+          ) AS "numeroPrestamos",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "montoBase"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" <=
+            ${periodoMes}
+
+          AND EXTRACT(
+            YEAR FROM TO_DATE(
+              r."RA01FEntrega",
+              'YYYY-MM-DD'
+            )
+          ) = c."C01PeriodoAnio"
+
+          AND EXTRACT(
+            MONTH FROM TO_DATE(
+              r."RA01FEntrega",
+              'YYYY-MM-DD'
+            )
+          ) = c."C01PeriodoMes"
+
+          ${oficinaWhere}
+      `,
+        ),
+
+        // 3. DEL MES
+        this.$queryRaw<ProductividadEjecutivoColocacionRow[]>(
+          Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(
+              CASE
+                WHEN ${ejecutivoWhere}
+                THEN r."RA01CEntregada"
+                ELSE 0
+              END
+            ),
+            0
+          ) AS "montoEjecutivo",
+
+          COUNT(*) FILTER (
+            WHERE ${ejecutivoWhere}
+          ) AS "numeroPrestamos",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "montoBase"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+
+          AND TO_DATE(
+            r."RA01FEntrega",
+            'YYYY-MM-DD'
+          ) >= TO_DATE(
+            ${inicioMes},
+            'YYYY-MM-DD'
+          )
+
+          AND TO_DATE(
+            r."RA01FEntrega",
+            'YYYY-MM-DD'
+          ) < TO_DATE(
+            ${finMes},
+            'YYYY-MM-DD'
+          )
+
+          ${oficinaWhere}
+      `,
+        ),
+
+        // 4. SALDO DEL EJECUTIVO
+        this.$queryRaw<ProductividadSaldoRow[]>(
+          Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS "saldo"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+
+          AND ${ejecutivoWhere}
+
+          ${oficinaWhere}
+      `,
+        ),
+      ]);
+
+    const acumulado = acumuladoRows[0];
+    const delAnio = delAnioRows[0];
+    const delMes = delMesRows[0];
+
+    const buildColocacion = (
+      row: ProductividadEjecutivoColocacionRow | undefined,
+    ): CreditoProductividadEjecutivoColocacionOutput => {
+      const monto = this._toNumber(row?.montoEjecutivo);
+
+      const numeroPrestamos = this._toNumber(row?.numeroPrestamos);
+
+      const montoBase = this._toNumber(row?.montoBase);
+
+      return {
+        monto,
+        numeroPrestamos,
+        porcentaje: montoBase > 0 ? (monto / montoBase) * 100 : 0,
+      };
+    };
+
+    return {
+      delMes: buildColocacion(delMes),
+
+      delAnio: buildColocacion(delAnio),
+
+      acumulado: buildColocacion(acumulado),
+
+      saldo: this._toNumber(saldoRows[0]?.saldo),
+    };
+  }
+
+  public async getProductividadGraficasEjecutivo(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadGraficasEjecutivoOutput> {
+    const { cooperativaId, oficina, ejecutivo, periodoMes, periodoAnio } =
+      input;
+
+    const usuarioJoin = this._buildProductividadUsuarioJoin();
+
+    const ejecutivoWhere = this._buildProductividadEjecutivoWhere(ejecutivo);
+
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const rows = await this.$queryRaw<ProductividadGraficasEjecutivoRow[]>(
+      Prisma.sql`
+        SELECT
+          COALESCE(
+            SUM(
+              CASE
+                WHEN ${ejecutivoWhere}
+                THEN r."RA01TotalCartera"
+                ELSE 0
+              END
+            ),
+            0
+          ) AS "saldoEjecutivo",
+
+          COALESCE(
+            SUM(
+              CASE
+                WHEN ${ejecutivoWhere}
+                  AND TRIM(r."RA01VigenteOVencido") = 'Vigente'
+                THEN r."RA01TotalCartera"
+                ELSE 0
+              END
+            ),
+            0
+          ) AS "saldoVigente",
+
+          COALESCE(
+            SUM(
+              CASE
+                WHEN ${ejecutivoWhere}
+                  AND TRIM(r."RA01VigenteOVencido") = 'Vencido'
+                THEN r."RA01TotalCartera"
+                ELSE 0
+              END
+            ),
+            0
+          ) AS "saldoVencido",
+
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS "saldoBase"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" = r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+
+          ${oficinaWhere}
+      `,
+    );
+
+    const row = rows[0];
+
+    const saldoEjecutivo = this._toNumber(row?.saldoEjecutivo);
+
+    const saldoVigente = this._toNumber(row?.saldoVigente);
+
+    const saldoVencido = this._toNumber(row?.saldoVencido);
+
+    const saldoBase = this._toNumber(row?.saldoBase);
+
+    const saldoClasificado = saldoVigente + saldoVencido;
+
+    const saldoResto = Math.max(saldoBase - saldoEjecutivo, 0);
+
+    return {
+      calidadCartera: {
+        saldoVigente,
+        porcentajeVigente:
+          saldoClasificado > 0 ? (saldoVigente / saldoClasificado) * 100 : 0,
+
+        saldoVencido,
+        porcentajeVencido:
+          saldoClasificado > 0 ? (saldoVencido / saldoClasificado) * 100 : 0,
+      },
+
+      participacionSaldo: {
+        saldoEjecutivo,
+        porcentajeEjecutivo:
+          saldoBase > 0 ? (saldoEjecutivo / saldoBase) * 100 : 0,
+
+        saldoResto,
+        porcentajeResto: saldoBase > 0 ? (saldoResto / saldoBase) * 100 : 0,
+      },
+    };
+  }
+
+  public async getProductividadTipoAutorizacion(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadTipoAutorizacionOutput> {
+    const tipoAutorizacionSql = this._buildProductividadTipoAutorizacionSql();
+
+    const categoriaSql = Prisma.sql`
+    CASE
+      WHEN ${tipoAutorizacionSql} = 'normal'
+        THEN 'Normal'
+
+      WHEN ${tipoAutorizacionSql} =
+        'prestamo renovado'
+        THEN 'Préstamo Renovado'
+
+      ELSE NULL
+    END
+  `;
+
+    return this._getProductividadDistribucion(input, categoriaSql, [
+      'Normal',
+      'Préstamo Renovado',
+    ]);
+  }
+
+  public async getProductividadTipoPago(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadTipoPagoOutput> {
+    const tipoPagoSql = this._buildProductividadTipoPagoSql();
+
+    const categoriaSql = Prisma.sql`
+      CASE
+        WHEN ${tipoPagoSql} =
+          'pago unico de cap e int al ven'
+          THEN 'Pago Único'
+  
+        WHEN ${tipoPagoSql} =
+          'pago periodico de cap e int'
+          THEN 'Pago Periódico'
+  
+        ELSE NULL
+      END
+    `;
+
+    return this._getProductividadDistribucion(input, categoriaSql, [
+      'Pago Único',
+      'Pago Periódico',
+    ]);
+  }
+
+  public async getProductividadTipoSocio(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadTipoSocioOutput> {
+    const tipoSocioSql = this._buildProductividadTipoSocioSql();
+
+    const categoriaSql = Prisma.sql`
+      CASE
+        WHEN NULLIF(
+          ${tipoSocioSql},
+          ''
+        ) IS NULL
+          THEN NULL
+  
+        WHEN ${tipoSocioSql} = '1 no relacionado'
+          THEN 'No Relacionado'
+  
+        ELSE 'Relacionado'
+      END
+    `;
+
+    return this._getProductividadDistribucion(input, categoriaSql, [
+      'No Relacionado',
+      'Relacionado',
+    ]);
+  }
+
+  public async getProductividadClasificacion(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadClasificacionOutput> {
+    const clasificacionSql = this._buildProductividadClasificacionSql();
+
+    const categoriaSql = Prisma.sql`
+      CASE
+        WHEN ${clasificacionSql} = 'comercial'
+          THEN 'Comercial'
+  
+        WHEN ${clasificacionSql} = 'consumo'
+          THEN 'Consumo'
+  
+        WHEN ${clasificacionSql} = 'vivienda'
+          THEN 'Vivienda'
+  
+        ELSE NULL
+      END
+    `;
+
+    return this._getProductividadDistribucion(input, categoriaSql, [
+      'Comercial',
+      'Consumo',
+      'Vivienda',
+    ]);
+  }
+
+  public async getProductividadSituacion(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadSituacionOutput> {
+    const categoriaSql = this._buildProductividadSituacionCategoriaSql();
+
+    const oficinaWhere = input.oficina
+      ? Prisma.sql`
+          AND r."RA01Sucursal" = ${input.oficina}
+        `
+      : Prisma.empty;
+
+    const ejecutivoWhere = this._buildProductividadEjecutivoWhere(
+      input.ejecutivo,
+    );
+
+    const rows = await this.$queryRaw<
+      Array<{
+        categoria: string | null;
+        colocacionAcumulada: string | number | bigint | Prisma.Decimal | null;
+        numeroPrestamos: string | number | bigint | null;
+        saldo: string | number | bigint | Prisma.Decimal | null;
+      }>
+    >(Prisma.sql`
+      SELECT
+        ${categoriaSql} AS categoria,
+  
+        COALESCE(
+          SUM(r."RA01CEntregada"),
+          0
+        ) AS "colocacionAcumulada",
+  
+        COUNT(*)::bigint AS "numeroPrestamos",
+  
+        COALESCE(
+          SUM(r."RA01TotalCartera"),
+          0
+        ) AS saldo
+  
+      FROM "RA01Credito" r
+  
+      INNER JOIN "C01ControlCarga" c
+        ON c."C01Id" =
+           r."RA01ControlId"
+  
+      ${this._buildProductividadUsuarioJoin()}
+  
+      WHERE
+        c."C01CooperativaCodigo" =
+        ${input.cooperativaId}::uuid
+  
+        AND c."C01PeriodoMes" =
+          ${input.periodoMes}
+  
+        AND c."C01PeriodoAnio" =
+          ${input.periodoAnio}
+  
+        AND c."C01Area" = 'CREDITO'
+  
+        ${oficinaWhere}
+  
+        AND ${ejecutivoWhere}
+  
+      GROUP BY
+        ${categoriaSql}
+    `);
+
+    const normalizedRows = rows.map((row) => ({
+      categoria: row.categoria,
+      colocacionAcumulada: this._toNumber(row.colocacionAcumulada),
+      numeroPrestamos: this._toNumber(row.numeroPrestamos),
+      saldo: this._toNumber(row.saldo),
+    }));
+
+    const totalColocacionAcumulada = normalizedRows.reduce(
+      (total, row) => total + row.colocacionAcumulada,
+      0,
+    );
+
+    const totalSaldo = normalizedRows.reduce(
+      (total, row) => total + row.saldo,
+      0,
+    );
+
+    const sinPagosVencidos = this._buildProductividadSituacionItem(
+      normalizedRows,
+      'Sin Pagos Vencidos',
+      totalColocacionAcumulada,
+    );
+
+    const conPagosVencidos = this._buildProductividadSituacionItem(
+      normalizedRows,
+      'Con Pagos Vencidos',
+      totalColocacionAcumulada,
+    );
+
+    const enLitigio = this._buildProductividadSituacionItem(
+      normalizedRows,
+      'En Litigio',
+      totalColocacionAcumulada,
+    );
+
+    const tramiteAdministrativo = this._buildProductividadSituacionItem(
+      normalizedRows,
+      'Trámite Administrativo',
+      totalColocacionAcumulada,
+    );
+
+    return {
+      totalColocacionAcumulada,
+      totalSaldo,
+
+      carteraVigente: {
+        totalColocacionAcumulada:
+          sinPagosVencidos.colocacionAcumulada +
+          conPagosVencidos.colocacionAcumulada,
+
+        totalSaldo: sinPagosVencidos.saldo + conPagosVencidos.saldo,
+
+        items: [sinPagosVencidos, conPagosVencidos],
+      },
+
+      carteraVencida: {
+        totalColocacionAcumulada:
+          enLitigio.colocacionAcumulada +
+          tramiteAdministrativo.colocacionAcumulada,
+
+        totalSaldo: enLitigio.saldo + tramiteAdministrativo.saldo,
+
+        items: [enLitigio, tramiteAdministrativo],
+      },
+    };
+  }
+
+  public async getProductividadComportamiento(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadComportamientoOutput> {
+    const oficinaWhere = input.oficina
+      ? Prisma.sql`
+          AND r."RA01Sucursal" = ${input.oficina}
+        `
+      : Prisma.empty;
+
+    const ejecutivoWhere = this._buildProductividadEjecutivoWhere(
+      input.ejecutivo,
+    );
+
+    const rows = await this.$queryRaw<
+      Array<{
+        mes: number;
+        colocacionAcumulada: string | number | bigint | Prisma.Decimal | null;
+        colocacionMensual: string | number | bigint | Prisma.Decimal | null;
+      }>
+    >(Prisma.sql`
+    SELECT
+      c."C01PeriodoMes" AS mes,
+
+      COALESCE(
+        SUM(r."RA01CEntregada"),
+        0
+      ) AS "colocacionAcumulada",
+
+      COALESCE(
+        SUM(
+          CASE
+            WHEN TO_DATE(
+              NULLIF(
+                TRIM(r."RA01FEntrega"),
+                ''
+              ),
+              'YYYY-MM-DD'
+            ) >= MAKE_DATE(
+              c."C01PeriodoAnio",
+              c."C01PeriodoMes",
+              1
+            )
+
+            AND TO_DATE(
+              NULLIF(
+                TRIM(r."RA01FEntrega"),
+                ''
+              ),
+              'YYYY-MM-DD'
+            ) <
+              (
+                MAKE_DATE(
+                  c."C01PeriodoAnio",
+                  c."C01PeriodoMes",
+                  1
+                )
+                + INTERVAL '1 month'
+              )
+
+            THEN r."RA01CEntregada"
+            ELSE 0
+          END
+        ),
+        0
+      ) AS "colocacionMensual"
+
+    FROM "RA01Credito" r
+
+    INNER JOIN "C01ControlCarga" c
+      ON c."C01Id" =
+         r."RA01ControlId"
+
+    ${this._buildProductividadUsuarioJoin()}
+
+    WHERE
+      c."C01CooperativaCodigo" =
+        ${input.cooperativaId}::uuid
+
+      AND c."C01PeriodoAnio" =
+        ${input.periodoAnio}
+
+      AND c."C01PeriodoMes"
+        BETWEEN 1 AND ${input.periodoMes}
+
+      AND c."C01Area" = 'CREDITO'
+
+      ${oficinaWhere}
+
+      AND ${ejecutivoWhere}
+
+    GROUP BY
+      c."C01PeriodoMes"
+
+    ORDER BY
+      c."C01PeriodoMes"
+  `);
+
+    const rowsByMonth = new Map(rows.map((row) => [row.mes, row]));
+
+    return {
+      periodos: Array.from(
+        {
+          length: input.periodoMes,
+        },
+        (_, index) => {
+          const mes = index + 1;
+          const row = rowsByMonth.get(mes);
+
+          return {
+            mes,
+
+            colocacionAcumulada: this._toNumber(row?.colocacionAcumulada),
+
+            colocacionMensual: this._toNumber(row?.colocacionMensual),
+          };
+        },
+      ),
+    };
+  }
+
+  public async getProductividadRankingResumen(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadRankingResumenOutput> {
+    const ejecutivoNombre = await this._getProductividadEjecutivoNombre(
+      input.cooperativaId,
+      input.ejecutivo,
+    );
+
+    const [produccionMes, rankingMensual, rankingAcumulado] = await Promise.all(
+      [
+        this._getProductividadProduccionMes(input),
+
+        this._getProductividadRankingMensualResumen(input, ejecutivoNombre),
+
+        this._getProductividadRankingAcumuladoResumen(input, ejecutivoNombre),
+      ],
+    );
+
+    return {
+      produccionMes,
+      rankingMensual,
+      rankingAcumulado,
+    };
+  }
+
+  public async getProductividadRankingMensual(
+    input: CreditoProductividadRankingPageInput,
+  ): Promise<CreditoProductividadRankingMensualOutput> {
+    const offset = (input.page - 1) * input.pageSize;
+
+    const [totalRows, rows] = await Promise.all([
+      this.$queryRaw<
+        Array<{
+          total: string | number | bigint;
+        }>
+      >(Prisma.sql`
+      WITH produccion AS (
+        SELECT
+          productividadUsuario."codigoLogico"
+            AS usuario
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        ${this._buildProductividadUsuarioJoin()}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${input.cooperativaId}::uuid
+
+          AND c."C01PeriodoMes" =
+            ${input.periodoMes}
+
+          AND c."C01PeriodoAnio" =
+            ${input.periodoAnio}
+
+          AND c."C01Area" =
+            'CREDITO'
+
+          AND productividadUsuario."codigoLogico"
+              IS NOT NULL
+
+          AND TO_DATE(
+            NULLIF(
+              TRIM(r."RA01FEntrega"),
+              ''
+            ),
+            'YYYY-MM-DD'
+          ) >= MAKE_DATE(
+            ${input.periodoAnio}::int,
+            ${input.periodoMes}::int,
+            1
+          )
+
+
+          AND TO_DATE(
+            NULLIF(
+              TRIM(r."RA01FEntrega"),
+              ''
+            ),
+            'YYYY-MM-DD'
+          ) <
+            (
+              MAKE_DATE(
+                ${input.periodoAnio}::int,
+                ${input.periodoMes}::int,
+                1
+              )
+
+          + INTERVAL '1 month'
+            )
+
+        GROUP BY
+          productividadUsuario."codigoLogico"
+      )
+
+      SELECT
+        COUNT(*) AS total
+
+      FROM produccion
+    `),
+
+      this.$queryRaw<
+        Array<{
+          lugar: string | number | bigint;
+
+          usuario: string;
+
+          ejecutivo: string | null;
+
+          monto: string | number | bigint | Prisma.Decimal | null;
+
+          numeroPrestamos: string | number | bigint;
+        }>
+      >(Prisma.sql`
+      WITH produccion AS (
+        SELECT
+          productividadUsuario."codigoLogico"
+            AS usuario,
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS monto,
+
+          COUNT(*) AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        ${this._buildProductividadUsuarioJoin()}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${input.cooperativaId}::uuid
+
+          AND c."C01PeriodoMes" =
+            ${input.periodoMes}
+
+          AND c."C01PeriodoAnio" =
+            ${input.periodoAnio}
+
+          AND c."C01Area" =
+            'CREDITO'
+
+          AND productividadUsuario."codigoLogico"
+              IS NOT NULL
+
+          AND TO_DATE(
+            NULLIF(
+              TRIM(r."RA01FEntrega"),
+              ''
+            ),
+            'YYYY-MM-DD'
+          ) >= MAKE_DATE(
+            ${input.periodoAnio}::int,
+            ${input.periodoMes}::int,
+            1
+          )
+
+
+          AND TO_DATE(
+            NULLIF(
+              TRIM(r."RA01FEntrega"),
+              ''
+            ),
+            'YYYY-MM-DD'
+          ) <
+            (
+              MAKE_DATE(
+                ${input.periodoAnio}::int,
+                ${input.periodoMes}::int,
+                1
+              )
+              + INTERVAL '1 month'
+            )
+
+        GROUP BY
+          productividadUsuario."codigoLogico"
+      ),
+
+      ranking AS (
+        SELECT
+          usuario,
+          monto,
+          "numeroPrestamos",
+
+          RANK() OVER (
+            ORDER BY monto DESC
+          ) AS lugar
+
+        FROM produccion
+      )
+
+      SELECT
+        rnk.lugar,
+        rnk.usuario,
+
+        COALESCE(
+          (
+            SELECT u."R12Nom"
+
+            FROM "R12Usuario" u
+
+            LEFT JOIN "OP02UsuarioAlias" a
+              ON a."OP02CooperativaId" =
+                 u."R12Coop_id"
+
+              AND a."OP02R12Ni" =
+                  u."R12Ni"
+
+            WHERE
+              u."R12Coop_id" =
+                ${input.cooperativaId}::uuid
+
+              AND COALESCE(
+                a."OP02CodigoLogico",
+                u."R12Ni"
+              ) = rnk.usuario
+
+            ORDER BY
+              CASE
+                WHEN u."R12Ni" =
+                     rnk.usuario
+                  THEN 0
+                ELSE 1
+              END,
+              u."R12Ni"
+
+            LIMIT 1
+          ),
+          rnk.usuario
+        ) AS ejecutivo,
+
+        rnk.monto,
+
+        rnk."numeroPrestamos"
+
+      FROM ranking rnk
+
+      ORDER BY
+        rnk.lugar ASC,
+        rnk.usuario ASC
+
+      LIMIT ${input.pageSize}
+      OFFSET ${offset}
+    `),
+    ]);
+
+    return {
+      total: this._toNumber(totalRows[0]?.total),
+
+      page: input.page,
+
+      pageSize: input.pageSize,
+
+      items: rows.map((row) => ({
+        lugar: this._toNumber(row.lugar),
+
+        usuario: row.usuario,
+
+        ejecutivo: row.ejecutivo ?? row.usuario,
+
+        monto: this._toNumber(row.monto),
+
+        numeroPrestamos: this._toNumber(row.numeroPrestamos),
+      })),
+    };
+  }
+
+  public async getProductividadRankingAcumulado(
+    input: CreditoProductividadRankingPageInput,
+  ): Promise<CreditoProductividadRankingAcumuladoOutput> {
+    const offset = (input.page - 1) * input.pageSize;
+
+    const [totalRows, rankingRows] = await Promise.all([
+      this.$queryRaw<
+        Array<{
+          total: string | number | bigint;
+        }>
+      >(Prisma.sql`
+      WITH produccion AS (
+        SELECT
+          productividadUsuario."codigoLogico"
+            AS usuario
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        ${this._buildProductividadUsuarioJoin()}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${input.cooperativaId}::uuid
+
+          AND c."C01PeriodoMes" =
+            ${input.periodoMes}
+
+          AND c."C01PeriodoAnio" =
+            ${input.periodoAnio}
+
+          AND c."C01Area" =
+            'CREDITO'
+
+          AND productividadUsuario."codigoLogico"
+              IS NOT NULL
+
+        GROUP BY
+          productividadUsuario."codigoLogico"
+      )
+
+      SELECT
+        COUNT(*) AS total
+
+      FROM produccion
+    `),
+
+      this.$queryRaw<
+        Array<{
+          lugar: string | number | bigint;
+
+          usuario: string;
+
+          ejecutivo: string | null;
+
+          total: string | number | bigint | Prisma.Decimal | null;
+        }>
+      >(Prisma.sql`
+      WITH produccion AS (
+        SELECT
+          productividadUsuario."codigoLogico"
+            AS usuario,
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS total
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        ${this._buildProductividadUsuarioJoin()}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${input.cooperativaId}::uuid
+
+          AND c."C01PeriodoMes" =
+            ${input.periodoMes}
+
+          AND c."C01PeriodoAnio" =
+            ${input.periodoAnio}
+
+          AND c."C01Area" =
+            'CREDITO'
+
+          AND productividadUsuario."codigoLogico"
+              IS NOT NULL
+
+        GROUP BY
+          productividadUsuario."codigoLogico"
+      ),
+
+      ranking AS (
+        SELECT
+          usuario,
+          total,
+
+          RANK() OVER (
+            ORDER BY total DESC
+          ) AS lugar
+
+        FROM produccion
+      )
+
+      SELECT
+        rnk.lugar,
+        rnk.usuario,
+
+        COALESCE(
+          (
+            SELECT u."R12Nom"
+
+            FROM "R12Usuario" u
+
+            LEFT JOIN "OP02UsuarioAlias" a
+              ON a."OP02CooperativaId" =
+                 u."R12Coop_id"
+
+              AND a."OP02R12Ni" =
+                  u."R12Ni"
+
+            WHERE
+              u."R12Coop_id" =
+                ${input.cooperativaId}::uuid
+
+              AND COALESCE(
+                a."OP02CodigoLogico",
+                u."R12Ni"
+              ) = rnk.usuario
+
+            ORDER BY
+              CASE
+                WHEN u."R12Ni" =
+                     rnk.usuario
+                  THEN 0
+                ELSE 1
+              END,
+              u."R12Ni"
+
+            LIMIT 1
+          ),
+          rnk.usuario
+        ) AS ejecutivo,
+
+        rnk.total
+
+      FROM ranking rnk
+
+      ORDER BY
+        rnk.lugar ASC,
+        rnk.usuario ASC
+
+      LIMIT ${input.pageSize}
+      OFFSET ${offset}
+    `),
+    ]);
+
+    const total = this._toNumber(totalRows[0]?.total);
+
+    if (rankingRows.length === 0) {
+      return {
+        total,
+        page: input.page,
+        pageSize: input.pageSize,
+        items: [],
+      };
+    }
+
+    const usuarios = rankingRows.map((row) => row.usuario);
+
+    const sucursalesRows =
+      await this._getProductividadRankingAcumuladoSucursales(input, usuarios);
+
+    const sucursalesPorUsuario = new Map<
+      string,
+      CreditoProductividadRankingSucursalOutput[]
+    >();
+
+    for (const row of sucursalesRows) {
+      const sucursales = sucursalesPorUsuario.get(row.usuario) ?? [];
+
+      sucursales.push({
+        sucursalNumero: row.sucursalNumero,
+
+        sucursalNombre: row.sucursalNombre ?? `Sucursal ${row.sucursalNumero}`,
+
+        monto: this._toNumber(row.monto),
+      });
+
+      sucursalesPorUsuario.set(row.usuario, sucursales);
+    }
+
+    return {
+      total,
+
+      page: input.page,
+
+      pageSize: input.pageSize,
+
+      items: rankingRows.map((row) => ({
+        lugar: this._toNumber(row.lugar),
+
+        usuario: row.usuario,
+
+        ejecutivo: row.ejecutivo ?? row.usuario,
+
+        total: this._toNumber(row.total),
+
+        sucursales: sucursalesPorUsuario.get(row.usuario) ?? [],
+      })),
+    };
+  }
+
   //   ==================================
   //   HELPERS
   //   ==================================
@@ -5457,5 +7063,1076 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
             : item.totalSaldo,
       })),
     };
+  }
+
+  private async _getProductividadDistribucion(
+    input: CreditoProductividadEjecutivoInput,
+    categoriaSql: Prisma.Sql,
+    categorias: string[],
+  ): Promise<{
+    delMes: CreditoProductividadDistribucionPeriodoOutput;
+    delAnio: CreditoProductividadDistribucionPeriodoOutput;
+    acumulado: CreditoProductividadDistribucionPeriodoOutput;
+    saldo: CreditoProductividadDistribucionSaldoOutput;
+  }> {
+    const { cooperativaId, oficina, ejecutivo, periodoMes, periodoAnio } =
+      input;
+
+    const usuarioJoin = this._buildProductividadUsuarioJoin();
+
+    const ejecutivoWhere = this._buildProductividadEjecutivoWhere(ejecutivo);
+
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        AND r."RA01Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const inicioMes = `${periodoAnio}-${String(periodoMes).padStart(
+      2,
+      '0',
+    )}-01`;
+
+    const siguienteMesDate =
+      periodoMes === 12
+        ? new Date(periodoAnio + 1, 0, 1)
+        : new Date(periodoAnio, periodoMes, 1);
+
+    const finMes = `${siguienteMesDate.getFullYear()}-${String(
+      siguienteMesDate.getMonth() + 1,
+    ).padStart(2, '0')}-01`;
+
+    const [acumuladoRows, delAnioRows, delMesRows, saldoRows] =
+      await Promise.all([
+        // 1. ACUMULADO
+        this.$queryRaw<ProductividadDistribucionColocacionRow[]>(
+          Prisma.sql`
+        SELECT
+          ${categoriaSql} AS "categoria",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "monto",
+
+          COUNT(*) AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+
+          AND ${ejecutivoWhere}
+
+          ${oficinaWhere}
+
+        GROUP BY ${categoriaSql}
+      `,
+        ),
+
+        // 2. DEL AÑO
+        this.$queryRaw<ProductividadDistribucionColocacionRow[]>(
+          Prisma.sql`
+        SELECT
+          ${categoriaSql} AS "categoria",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "monto",
+
+          COUNT(*) AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" <=
+            ${periodoMes}
+
+          AND EXTRACT(
+            YEAR FROM TO_DATE(
+              r."RA01FEntrega",
+              'YYYY-MM-DD'
+            )
+          ) = c."C01PeriodoAnio"
+
+          AND EXTRACT(
+            MONTH FROM TO_DATE(
+              r."RA01FEntrega",
+              'YYYY-MM-DD'
+            )
+          ) = c."C01PeriodoMes"
+
+          AND ${ejecutivoWhere}
+
+          ${oficinaWhere}
+
+        GROUP BY ${categoriaSql}
+      `,
+        ),
+
+        // 3. DEL MES
+        this.$queryRaw<ProductividadDistribucionColocacionRow[]>(
+          Prisma.sql`
+        SELECT
+          ${categoriaSql} AS "categoria",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          ) AS "monto",
+
+          COUNT(*) AS "numeroPrestamos"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+
+          AND TO_DATE(
+            r."RA01FEntrega",
+            'YYYY-MM-DD'
+          ) >= TO_DATE(
+            ${inicioMes},
+            'YYYY-MM-DD'
+          )
+
+          AND TO_DATE(
+            r."RA01FEntrega",
+            'YYYY-MM-DD'
+          ) < TO_DATE(
+            ${finMes},
+            'YYYY-MM-DD'
+          )
+
+          AND ${ejecutivoWhere}
+
+          ${oficinaWhere}
+
+        GROUP BY ${categoriaSql}
+      `,
+        ),
+
+        // 4. SALDO
+        this.$queryRaw<ProductividadDistribucionSaldoRow[]>(
+          Prisma.sql`
+        SELECT
+          ${categoriaSql} AS "categoria",
+
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          ) AS "saldo"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        ${usuarioJoin}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+            ${cooperativaId}::uuid
+
+          AND c."C01Area" = 'CREDITO'
+
+          AND c."C01PeriodoAnio" =
+            ${periodoAnio}
+
+          AND c."C01PeriodoMes" =
+            ${periodoMes}
+
+          AND ${ejecutivoWhere}
+
+          ${oficinaWhere}
+
+        GROUP BY ${categoriaSql}
+      `,
+        ),
+      ]);
+
+    return {
+      delMes: this._buildProductividadDistribucionColocacion(
+        delMesRows,
+        categorias,
+      ),
+
+      delAnio: this._buildProductividadDistribucionColocacion(
+        delAnioRows,
+        categorias,
+      ),
+
+      acumulado: this._buildProductividadDistribucionColocacion(
+        acumuladoRows,
+        categorias,
+      ),
+
+      saldo: this._buildProductividadDistribucionSaldo(saldoRows, categorias),
+    };
+  }
+
+  private _buildProductividadUsuarioJoin(): Prisma.Sql {
+    return Prisma.sql`
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(
+            autorizacionAlias."OP02CodigoLogico",
+            autorizacionUsuario."R12Ni",
+            solicitudAlias."OP02CodigoLogico",
+            solicitudUsuario."R12Ni"
+          ) AS "codigoLogico"
+  
+        FROM (SELECT 1) AS base
+  
+        LEFT JOIN "R12Usuario" autorizacionUsuario
+          ON autorizacionUsuario."R12Coop_id" =
+             c."C01CooperativaCodigo"
+          AND TRIM(autorizacionUsuario."R12Ni") =
+              NULLIF(TRIM(r."RA01UsrAutorizacion"), '')
+  
+        LEFT JOIN "OP02UsuarioAlias" autorizacionAlias
+          ON autorizacionAlias."OP02CooperativaId" =
+             c."C01CooperativaCodigo"
+          AND autorizacionAlias."OP02R12Ni" =
+              autorizacionUsuario."R12Ni"
+  
+        LEFT JOIN "R12Usuario" solicitudUsuario
+          ON solicitudUsuario."R12Coop_id" =
+             c."C01CooperativaCodigo"
+          AND TRIM(solicitudUsuario."R12Ni") =
+              NULLIF(TRIM(r."RA01UsrSolicitud"), '')
+  
+        LEFT JOIN "OP02UsuarioAlias" solicitudAlias
+          ON solicitudAlias."OP02CooperativaId" =
+             c."C01CooperativaCodigo"
+          AND solicitudAlias."OP02R12Ni" =
+              solicitudUsuario."R12Ni"
+      ) productividadUsuario ON TRUE
+    `;
+  }
+
+  private _buildProductividadEjecutivoWhere(ejecutivo: string): Prisma.Sql {
+    return Prisma.sql`
+      productividadUsuario."codigoLogico" = ${ejecutivo}
+    `;
+  }
+
+  private _buildProductividadTipoAutorizacionSql(): Prisma.Sql {
+    return Prisma.sql`
+      LOWER(
+        TRANSLATE(
+          TRIM(r."RA01TipoDeAutorizacion"),
+          'áéíóúÁÉÍÓÚ',
+          'aeiouAEIOU'
+        )
+      )
+    `;
+  }
+
+  private _buildProductividadTipoPagoSql(): Prisma.Sql {
+    return Prisma.sql`
+      LOWER(
+        TRANSLATE(
+          TRIM(r."RA01FormaPago"),
+          'áéíóúÁÉÍÓÚ',
+          'aeiouAEIOU'
+        )
+      )
+    `;
+  }
+
+  private _buildProductividadDistribucionColocacion(
+    rows: ProductividadDistribucionColocacionRow[],
+    categorias: string[],
+  ): CreditoProductividadDistribucionPeriodoOutput {
+    const total = rows.reduce((sum, row) => sum + this._toNumber(row.monto), 0);
+
+    const items = categorias.map((categoria) => {
+      const row = rows.find((item) => item.categoria === categoria);
+
+      const monto = this._toNumber(row?.monto);
+
+      return {
+        categoria,
+        monto,
+        numeroPrestamos: this._toNumber(row?.numeroPrestamos),
+        porcentaje: total > 0 ? (monto / total) * 100 : 0,
+      };
+    });
+
+    return {
+      total,
+      items,
+    };
+  }
+
+  private _buildProductividadDistribucionSaldo(
+    rows: ProductividadDistribucionSaldoRow[],
+    categorias: string[],
+  ): CreditoProductividadDistribucionSaldoOutput {
+    const total = rows.reduce((sum, row) => sum + this._toNumber(row.saldo), 0);
+
+    const items = categorias.map((categoria) => {
+      const row = rows.find((item) => item.categoria === categoria);
+
+      const saldo = this._toNumber(row?.saldo);
+
+      return {
+        categoria,
+        saldo,
+        porcentaje: total > 0 ? (saldo / total) * 100 : 0,
+      };
+    });
+
+    return {
+      total,
+      items,
+    };
+  }
+
+  private _buildProductividadTipoSocioSql(): Prisma.Sql {
+    return Prisma.sql`
+      LOWER(
+        TRANSLATE(
+          TRIM(r."RA01SocioRelacionado"),
+          'áéíóúÁÉÍÓÚ',
+          'aeiouAEIOU'
+        )
+      )
+    `;
+  }
+
+  private _buildProductividadClasificacionSql(): Prisma.Sql {
+    return Prisma.sql`
+      LOWER(
+        TRANSLATE(
+          TRIM(r."RA01Tipo"),
+          'áéíóúÁÉÍÓÚ',
+          'aeiouAEIOU'
+        )
+      )
+    `;
+  }
+
+  private _buildProductividadSituacionSql(): Prisma.Sql {
+    return Prisma.sql`
+      LOWER(
+        TRANSLATE(
+          TRIM(r."RA01SituacionDelCredito"),
+          'áéíóúÁÉÍÓÚ',
+          'aeiouAEIOU'
+        )
+      )
+    `;
+  }
+
+  private _buildProductividadSituacionCategoriaSql(): Prisma.Sql {
+    const situacionSql = this._buildProductividadSituacionSql();
+
+    return Prisma.sql`
+      CASE
+        WHEN ${situacionSql} = 'vig. sin pagos venc'
+          THEN 'Sin Pagos Vencidos'
+  
+        WHEN ${situacionSql} = 'vig. con pagos venc'
+          THEN 'Con Pagos Vencidos'
+  
+        WHEN ${situacionSql} = 'venc. en litigio'
+          THEN 'En Litigio'
+  
+        WHEN ${situacionSql} = 'venc. tramit adm.'
+          THEN 'Trámite Administrativo'
+  
+        ELSE NULL
+      END
+    `;
+  }
+
+  private _buildProductividadSituacionItem(
+    rows: Array<{
+      categoria: string | null;
+      colocacionAcumulada: number;
+      numeroPrestamos: number;
+      saldo: number;
+    }>,
+    categoria: string,
+    totalColocacionAcumulada: number,
+  ): CreditoProductividadSituacionItemOutput {
+    const row = rows.find((item) => item.categoria === categoria);
+
+    const colocacionAcumulada = row?.colocacionAcumulada ?? 0;
+
+    return {
+      categoria,
+      colocacionAcumulada,
+      numeroPrestamos: row?.numeroPrestamos ?? 0,
+
+      porcentaje:
+        totalColocacionAcumulada > 0
+          ? (colocacionAcumulada / totalColocacionAcumulada) * 100
+          : 0,
+
+      saldo: row?.saldo ?? 0,
+    };
+  }
+
+  private async _getProductividadEjecutivoNombre(
+    cooperativaId: string,
+    codigoLogico: string,
+  ): Promise<string> {
+    const rows = await this.$queryRaw<
+      Array<{
+        nombre: string | null;
+      }>
+    >(Prisma.sql`
+      SELECT
+        u."R12Nom" AS nombre
+  
+      FROM "R12Usuario" u
+  
+      LEFT JOIN "OP02UsuarioAlias" a
+        ON a."OP02CooperativaId" =
+           u."R12Coop_id"
+        AND a."OP02R12Ni" =
+            u."R12Ni"
+  
+      WHERE
+        u."R12Coop_id" =
+          ${cooperativaId}::uuid
+  
+        AND COALESCE(
+          a."OP02CodigoLogico",
+          u."R12Ni"
+        ) = ${codigoLogico}
+  
+      ORDER BY
+        CASE
+          WHEN u."R12Ni" = ${codigoLogico}
+            THEN 0
+          ELSE 1
+        END,
+        u."R12Ni"
+  
+      LIMIT 1
+    `);
+
+    return rows[0]?.nombre ?? codigoLogico;
+  }
+
+  private async _getProductividadProduccionMes(
+    input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadProduccionMesOutput> {
+    const oficinaWhere = input.oficina
+      ? Prisma.sql`
+          AND r."RA01Sucursal" =
+              ${input.oficina}
+        `
+      : Prisma.empty;
+
+    const ejecutivoWhere = this._buildProductividadEjecutivoWhere(
+      input.ejecutivo,
+    );
+
+    const rows = await this.$queryRaw<
+      Array<{
+        producto: string | null;
+        tipo: string | null;
+        monto: string | number | bigint | Prisma.Decimal | null;
+        numeroPrestamos: string | number | bigint | null;
+      }>
+    >(Prisma.sql`
+      SELECT
+        NULLIF(
+          TRIM(r."RA01Categoria"),
+          ''
+        ) AS producto,
+
+        NULLIF(
+          TRIM(r."RA01Tipo"),
+          ''
+        ) AS tipo,
+
+        COALESCE(
+          SUM(r."RA01CEntregada"),
+          0
+        ) AS monto,
+
+        COUNT(*) AS "numeroPrestamos"
+
+    FROM "RA01Credito" r
+
+    INNER JOIN "C01ControlCarga" c
+      ON c."C01Id" =
+         r."RA01ControlId"
+
+    ${this._buildProductividadUsuarioJoin()}
+
+    WHERE
+      c."C01CooperativaCodigo" =
+        ${input.cooperativaId}::uuid
+
+      AND c."C01PeriodoMes" =
+        ${input.periodoMes}
+
+      AND c."C01PeriodoAnio" =
+        ${input.periodoAnio}
+
+      AND c."C01Area" = 'CREDITO'
+
+      ${oficinaWhere}
+
+      AND ${ejecutivoWhere}
+
+      AND TO_DATE(
+        NULLIF(
+          TRIM(r."RA01FEntrega"),
+          ''
+        ),
+        'YYYY-MM-DD'
+      ) >= MAKE_DATE(
+        ${input.periodoAnio}::int,
+        ${input.periodoMes}::int,
+        1
+      )
+
+      AND TO_DATE(
+        NULLIF(
+          TRIM(r."RA01FEntrega"),
+          ''
+        ),
+        'YYYY-MM-DD'
+      ) <
+        (
+          MAKE_DATE(
+            ${input.periodoAnio}::int,
+            ${input.periodoMes}::int,
+            1
+          )
+          + INTERVAL '1 month'
+        )
+
+    GROUP BY
+      NULLIF(
+        TRIM(r."RA01Categoria"),
+        ''
+      ),
+      NULLIF(
+        TRIM(r."RA01Tipo"),
+        ''
+      )
+
+    ORDER BY
+      SUM(r."RA01CEntregada") DESC
+  `);
+
+    const productos = rows.map((row) => ({
+      producto: row.producto ?? 'Sin producto',
+
+      tipo: row.tipo ?? 'Sin tipo',
+
+      monto: this._toNumber(row.monto),
+
+      numeroPrestamos: this._toNumber(row.numeroPrestamos),
+    }));
+
+    return {
+      totalMonto: productos.reduce(
+        (total, producto) => total + producto.monto,
+        0,
+      ),
+
+      totalPrestamos: productos.reduce(
+        (total, producto) => total + producto.numeroPrestamos,
+        0,
+      ),
+
+      productos,
+    };
+  }
+
+  private async _getProductividadRankingMensualResumen(
+    input: CreditoProductividadEjecutivoInput,
+    ejecutivoNombre: string,
+  ): Promise<CreditoProductividadRankingMensualResumenOutput> {
+    const rows = await this.$queryRaw<
+      Array<{
+        lugar: bigint | number;
+        totalEjecutivos: bigint | number;
+        monto: string | number | bigint | Prisma.Decimal | null;
+        numeroPrestamos: string | number | bigint | null;
+      }>
+    >(Prisma.sql`
+    WITH produccion AS (
+      SELECT
+        productividadUsuario."codigoLogico"
+          AS usuario,
+
+        SUM(
+          r."RA01CEntregada"
+        ) AS monto,
+
+        COUNT(*) AS "numeroPrestamos"
+
+      FROM "RA01Credito" r
+
+      INNER JOIN "C01ControlCarga" c
+        ON c."C01Id" =
+           r."RA01ControlId"
+
+      ${this._buildProductividadUsuarioJoin()}
+
+      WHERE
+        c."C01CooperativaCodigo" =
+          ${input.cooperativaId}::uuid
+
+        AND c."C01PeriodoMes" =
+          ${input.periodoMes}
+
+        AND c."C01PeriodoAnio" =
+          ${input.periodoAnio}
+
+        AND c."C01Area" = 'CREDITO'
+
+        AND productividadUsuario."codigoLogico"
+            IS NOT NULL
+
+        AND TO_DATE(
+          NULLIF(
+            TRIM(r."RA01FEntrega"),
+            ''
+          ),
+          'YYYY-MM-DD'
+        ) >= MAKE_DATE(
+          ${input.periodoAnio}::int,
+          ${input.periodoMes}::int,
+          1
+        )
+
+        AND TO_DATE(
+          NULLIF(
+            TRIM(r."RA01FEntrega"),
+            ''
+          ),
+          'YYYY-MM-DD'
+        ) <
+          (
+            MAKE_DATE(
+              ${input.periodoAnio}::int,
+              ${input.periodoMes}::int,
+              1
+            )
+            + INTERVAL '1 month'
+          )
+
+      GROUP BY
+        productividadUsuario."codigoLogico"
+    ),
+
+    ranking AS (
+      SELECT
+        usuario,
+        monto,
+        "numeroPrestamos",
+  
+        RANK() OVER (
+        ORDER BY monto DESC
+      ) AS lugar
+  
+      FROM produccion
+    )
+  
+    SELECT
+      COALESCE(
+        (
+          SELECT rnk.lugar
+          FROM ranking rnk
+          WHERE rnk.usuario =
+                ${input.ejecutivo}
+            LIMIT 1
+        ),
+        0
+    ) AS lugar,
+
+      (
+        SELECT COUNT(*)
+        FROM produccion
+      ) AS "totalEjecutivos",
+
+      COALESCE(
+        (
+          SELECT rnk.monto
+          FROM ranking rnk
+          WHERE rnk.usuario =
+                ${input.ejecutivo}
+        LIMIT 1
+        ),
+    0
+  ) AS monto,
+
+      COALESCE(
+        (
+          SELECT rnk."numeroPrestamos"
+          FROM ranking rnk
+          WHERE rnk.usuario =
+                ${input.ejecutivo}
+        LIMIT 1
+        ),
+    0
+        ) AS "numeroPrestamos"
+    `);
+
+    const row = rows[0];
+
+    return {
+      lugar: this._toNumber(row?.lugar),
+
+      totalEjecutivos: this._toNumber(row?.totalEjecutivos),
+
+      usuario: input.ejecutivo,
+
+      ejecutivo: ejecutivoNombre,
+
+      monto: this._toNumber(row?.monto),
+
+      numeroPrestamos: this._toNumber(row?.numeroPrestamos),
+    };
+  }
+
+  private async _getProductividadRankingAcumuladoResumen(
+    input: CreditoProductividadEjecutivoInput,
+    ejecutivoNombre: string,
+  ): Promise<CreditoProductividadRankingAcumuladoResumenOutput> {
+    const rankingRows = await this.$queryRaw<
+      Array<{
+        lugar: string | number | bigint | null;
+
+        totalEjecutivos: string | number | bigint | null;
+
+        total: string | number | bigint | Prisma.Decimal | null;
+      }>
+    >(Prisma.sql`
+    WITH produccion AS (
+      SELECT
+        productividadUsuario."codigoLogico"
+          AS usuario,
+
+        COALESCE(
+          SUM(r."RA01CEntregada"),
+          0
+        ) AS total
+
+      FROM "RA01Credito" r
+
+      INNER JOIN "C01ControlCarga" c
+        ON c."C01Id" =
+           r."RA01ControlId"
+
+      ${this._buildProductividadUsuarioJoin()}
+
+      WHERE
+        c."C01CooperativaCodigo" =
+          ${input.cooperativaId}::uuid
+
+        AND c."C01PeriodoMes" =
+          ${input.periodoMes}
+
+        AND c."C01PeriodoAnio" =
+          ${input.periodoAnio}
+
+        AND c."C01Area" = 'CREDITO'
+
+        AND productividadUsuario."codigoLogico"
+            IS NOT NULL
+
+      GROUP BY
+        productividadUsuario."codigoLogico"
+    ),
+
+    ranking AS (
+      SELECT
+        usuario,
+        total,
+
+        RANK() OVER (
+          ORDER BY total DESC
+        ) AS lugar
+
+      FROM produccion
+    )
+
+    SELECT
+      COALESCE(
+        (
+          SELECT rnk.lugar
+          FROM ranking rnk
+          WHERE rnk.usuario =
+            ${input.ejecutivo}
+          LIMIT 1
+        ),
+        0
+      ) AS lugar,
+
+      (
+        SELECT COUNT(*)
+        FROM produccion
+      ) AS "totalEjecutivos",
+
+      COALESCE(
+        (
+          SELECT rnk.total
+          FROM ranking rnk
+          WHERE rnk.usuario =
+            ${input.ejecutivo}
+          LIMIT 1
+        ),
+        0
+      ) AS total
+  `);
+
+    const sucursalesRows = await this.$queryRaw<
+      Array<{
+        sucursalNumero: string;
+        sucursalNombre: string | null;
+
+        monto: string | number | bigint | Prisma.Decimal | null;
+      }>
+    >(Prisma.sql`
+    SELECT
+      r."RA01Sucursal"
+        AS "sucursalNumero",
+
+      s."R11Nom"
+        AS "sucursalNombre",
+
+      COALESCE(
+        SUM(r."RA01CEntregada"),
+        0
+      ) AS monto
+
+    FROM "RA01Credito" r
+
+    INNER JOIN "C01ControlCarga" c
+      ON c."C01Id" =
+         r."RA01ControlId"
+
+    ${this._buildProductividadUsuarioJoin()}
+
+    LEFT JOIN "R11Sucursal" s
+      ON s."R11Coop_id" =
+         c."C01CooperativaCodigo"
+
+      AND s."R11NumSuc" =
+          r."RA01Sucursal"
+
+    WHERE
+      c."C01CooperativaCodigo" =
+        ${input.cooperativaId}::uuid
+
+      AND c."C01PeriodoMes" =
+        ${input.periodoMes}
+
+      AND c."C01PeriodoAnio" =
+        ${input.periodoAnio}
+
+      AND c."C01Area" = 'CREDITO'
+
+      AND productividadUsuario."codigoLogico" =
+          ${input.ejecutivo}
+
+      AND NULLIF(
+        TRIM(r."RA01Sucursal"),
+        ''
+      ) IS NOT NULL
+
+    GROUP BY
+      r."RA01Sucursal",
+      s."R11Nom"
+
+    HAVING
+      COALESCE(
+        SUM(r."RA01CEntregada"),
+        0
+      ) <> 0
+
+    ORDER BY
+      CASE
+      WHEN TRIM(r."RA01Sucursal") ~ '^[0-9]+$'
+      THEN TRIM(r."RA01Sucursal")::bigint
+      ELSE NULL
+      END ASC NULLS LAST,
+    TRIM(r."RA01Sucursal") ASC
+  `);
+
+    const ranking = rankingRows[0];
+
+    return {
+      lugar: this._toNumber(ranking?.lugar),
+
+      totalEjecutivos: this._toNumber(ranking?.totalEjecutivos),
+
+      usuario: input.ejecutivo,
+
+      ejecutivo: ejecutivoNombre,
+
+      total: this._toNumber(ranking?.total),
+
+      sucursales: sucursalesRows.map((row) => ({
+        sucursalNumero: row.sucursalNumero,
+
+        sucursalNombre: row.sucursalNombre ?? `Sucursal ${row.sucursalNumero}`,
+
+        monto: this._toNumber(row.monto),
+      })),
+    };
+  }
+
+  private async _getProductividadRankingAcumuladoSucursales(
+    input: CreditoProductividadRankingPageInput,
+    usuarios: string[],
+  ): Promise<
+    Array<{
+      usuario: string;
+
+      sucursalNumero: string;
+
+      sucursalNombre: string | null;
+
+      monto: string | number | bigint | Prisma.Decimal | null;
+    }>
+  > {
+    if (usuarios.length === 0) {
+      return [];
+    }
+
+    return this.$queryRaw<
+      Array<{
+        usuario: string;
+
+        sucursalNumero: string;
+
+        sucursalNombre: string | null;
+
+        monto: string | number | bigint | Prisma.Decimal | null;
+      }>
+    >(Prisma.sql`
+    SELECT
+      productividadUsuario."codigoLogico"
+        AS usuario,
+
+      r."RA01Sucursal"
+        AS "sucursalNumero",
+
+      s."R11Nom"
+        AS "sucursalNombre",
+
+      COALESCE(
+        SUM(r."RA01CEntregada"),
+        0
+      ) AS monto
+
+    FROM "RA01Credito" r
+
+    INNER JOIN "C01ControlCarga" c
+      ON c."C01Id" =
+         r."RA01ControlId"
+
+    ${this._buildProductividadUsuarioJoin()}
+
+    LEFT JOIN "R11Sucursal" s
+      ON s."R11Coop_id" =
+         c."C01CooperativaCodigo"
+
+      AND s."R11NumSuc" =
+          r."RA01Sucursal"
+
+    WHERE
+      c."C01CooperativaCodigo" =
+        ${input.cooperativaId}::uuid
+
+      AND c."C01PeriodoMes" =
+        ${input.periodoMes}
+
+      AND c."C01PeriodoAnio" =
+        ${input.periodoAnio}
+
+      AND c."C01Area" =
+        'CREDITO'
+
+      AND productividadUsuario."codigoLogico"
+          IN (${Prisma.join(usuarios)})
+
+      AND NULLIF(
+        TRIM(r."RA01Sucursal"),
+        ''
+      ) IS NOT NULL
+
+    GROUP BY
+      productividadUsuario."codigoLogico",
+      r."RA01Sucursal",
+      s."R11Nom"
+
+    HAVING
+      COALESCE(
+        SUM(r."RA01CEntregada"),
+        0
+      ) <> 0
+
+    ORDER BY
+      productividadUsuario."codigoLogico" ASC,
+
+      CASE
+      WHEN TRIM(r."RA01Sucursal") ~ '^[0-9]+$'
+      THEN TRIM(r."RA01Sucursal")::bigint
+      ELSE NULL
+      END ASC NULLS LAST,
+  
+    TRIM(r."RA01Sucursal") ASC
+  `);
   }
 }

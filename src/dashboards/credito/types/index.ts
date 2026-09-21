@@ -120,3 +120,46 @@ export type RentabilidadGraficaRow = {
 
   valor: string | number | bigint | Prisma.Decimal | null;
 };
+
+export type ProductividadEjecutivoRow = {
+  codigo: string;
+  nombre: string;
+};
+
+export type ProductividadColocacionRow = {
+  monto: string | number | bigint | Prisma.Decimal | null;
+  numeroPrestamos: string | number | bigint | Prisma.Decimal | null;
+};
+
+export type ProductividadSaldoRow = {
+  saldo: string | number | bigint | Prisma.Decimal | null;
+};
+
+export type ProductividadEjecutivoColocacionRow = {
+  montoEjecutivo: string | number | bigint | Prisma.Decimal | null;
+
+  numeroPrestamos: string | number | bigint | Prisma.Decimal | null;
+
+  montoBase: string | number | bigint | Prisma.Decimal | null;
+};
+
+export type ProductividadGraficasEjecutivoRow = {
+  saldoEjecutivo: string | number | bigint | Prisma.Decimal | null;
+
+  saldoVigente: string | number | bigint | Prisma.Decimal | null;
+
+  saldoVencido: string | number | bigint | Prisma.Decimal | null;
+
+  saldoBase: string | number | bigint | Prisma.Decimal | null;
+};
+
+export type ProductividadDistribucionColocacionRow = {
+  categoria: string | null;
+  monto: string | number | bigint | Prisma.Decimal | null;
+  numeroPrestamos: string | number | bigint | Prisma.Decimal | null;
+};
+
+export type ProductividadDistribucionSaldoRow = {
+  categoria: string | null;
+  saldo: string | number | bigint | Prisma.Decimal | null;
+};

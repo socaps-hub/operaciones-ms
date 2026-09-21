@@ -39,6 +39,31 @@ import {
 } from './dto/outputs/credito-traspasos-cartera-vencida-detalle.output';
 import { CreditoRentabilidadInput } from './dto/inputs/credito-rentabilidad.input';
 import { CreditoRentabilidadOutput } from './dto/outputs/credito-rentabilidad.output';
+import {
+  CreditoProductividadEjecutivosFiltrosInput
+} from './dto/inputs/credito-productividad-ejecutivos-filtros.input';
+import { CreditoProductividadEjecutivosFiltrosOutput } from './dto/outputs/credito-productividad-ejecutivos.output';
+import { CreditoProductividadOficinaInput } from './dto/inputs/credito-productividad-oficina.input';
+import { CreditoProductividadOficinaOutput } from './dto/outputs/credito-productividad-colocacion.output';
+import { CreditoProductividadEjecutivoInput } from './dto/inputs/credito-productividad-ejecutivo.input';
+import { CreditoProductividadEjecutivoOutput } from './dto/outputs/credito-productividad-ejecutivo.output';
+import {
+  CreditoProductividadGraficasEjecutivoOutput
+} from './dto/outputs/credito-productividad-graficas-ejecutivo.output';
+import {
+  CreditoProductividadTipoAutorizacionOutput
+} from './dto/outputs/credito-productividad-tipo-autorizacion.output';
+import { CreditoProductividadTipoPagoOutput } from './dto/outputs/credito-productividad-tipo-pago.output';
+import { CreditoProductividadTipoSocioOutput } from './dto/outputs/credito-productividad-tipo-socio.output';
+import { CreditoProductividadClasificacionOutput } from './dto/outputs/credito-productivad-clasificacion.output';
+import { CreditoProductividadSituacionOutput } from './dto/outputs/credito-productividad-situacion.output';
+import { CreditoProductividadComportamientoOutput } from './dto/outputs/credito-productividad-comportamiento.output';
+import { CreditoProductividadRankingResumenOutput } from './dto/outputs/credito-productividad-ranking-resumen.output';
+import { CreditoProductividadRankingPageInput } from './dto/inputs/credito-productividad-ranking-page.input';
+import { CreditoProductividadRankingMensualOutput } from './dto/outputs/credito-productividad-ranking-mensual.output';
+import {
+  CreditoProductividadRankingAcumuladoOutput
+} from './dto/outputs/credito-productividad-ranking-acumulado.output';
 
 @Controller()
 export class CreditoHandler {
@@ -180,5 +205,99 @@ export class CreditoHandler {
     @Payload() input: CreditoRentabilidadInput,
   ): Promise<CreditoRentabilidadOutput> {
     return this._service.getRentabilidad(input);
+  }
+
+  // =========================================
+  // PRODUCTIVIDAD - EJECUTIVOS
+  // =========================================
+  @MessagePattern('operaciones.credito.getProductividadEjecutivosFiltros')
+  public async getProductividadEjecutivosFiltros(
+    @Payload() input: CreditoProductividadEjecutivosFiltrosInput,
+  ): Promise<CreditoProductividadEjecutivosFiltrosOutput> {
+    return this._service.getProductividadEjecutivosFiltros(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadOficina')
+  public async getProductividadOficina(
+    @Payload() input: CreditoProductividadOficinaInput,
+  ): Promise<CreditoProductividadOficinaOutput> {
+    return this._service.getProductividadOficina(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadEjecutivo')
+  public async getProductividadEjecutivo(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadEjecutivoOutput> {
+    return this._service.getProductividadEjecutivo(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadGraficasEjecutivo')
+  public async getProductividadGraficasEjecutivo(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadGraficasEjecutivoOutput> {
+    return this._service.getProductividadGraficasEjecutivo(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadTipoAutorizacion')
+  public async getProductividadTipoAutorizacion(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadTipoAutorizacionOutput> {
+    return this._service.getProductividadTipoAutorizacion(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadTipoPago')
+  public async getProductividadTipoPago(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadTipoPagoOutput> {
+    return this._service.getProductividadTipoPago(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadTipoSocio')
+  public async getProductividadTipoSocio(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadTipoSocioOutput> {
+    return this._service.getProductividadTipoSocio(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadClasificacion')
+  public async getProductividadClasificacion(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadClasificacionOutput> {
+    return this._service.getProductividadClasificacion(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadSituacion')
+  public async getProductividadSituacion(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadSituacionOutput> {
+    return this._service.getProductividadSituacion(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadComportamiento')
+  public async getProductividadComportamiento(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadComportamientoOutput> {
+    return this._service.getProductividadComportamiento(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadRankingResumen')
+  public async getProductividadRankingResumen(
+    @Payload() input: CreditoProductividadEjecutivoInput,
+  ): Promise<CreditoProductividadRankingResumenOutput> {
+    return this._service.getProductividadRankingResumen(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadRankingMensual')
+  public async getProductividadRankingMensual(
+    @Payload() input: CreditoProductividadRankingPageInput,
+  ): Promise<CreditoProductividadRankingMensualOutput> {
+    return this._service.getProductividadRankingMensual(input);
+  }
+
+  @MessagePattern('operaciones.credito.getProductividadRankingAcumulado')
+  public async getProductividadRankingAcumulado(
+    @Payload() input: CreditoProductividadRankingPageInput,
+  ): Promise<CreditoProductividadRankingAcumuladoOutput> {
+    return this._service.getProductividadRankingAcumulado(input);
   }
 }
