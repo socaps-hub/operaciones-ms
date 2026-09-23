@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 
-import { OP_META_AREA, Prisma, PrismaClient } from '@prisma/client';
+import { OP_META_AREA, Prisma, PrismaClient, RADIO_AREA } from '@prisma/client';
 
 import { CreditoColocacionTotalInput } from './dto/inputs/credito-colocacion-total.input';
 import { CreditoColocacionTotalOutput } from './dto/outputs/credito-colocacion-total.output';
@@ -141,9 +141,15 @@ import {
 } from './dto/outputs/credito-productividad-ranking-resumen.output';
 import { CreditoProductividadRankingPageInput } from './dto/inputs/credito-productividad-ranking-page.input';
 import { CreditoProductividadRankingMensualOutput } from './dto/outputs/credito-productividad-ranking-mensual.output';
+import { CreditoProductividadRankingAcumuladoOutput } from './dto/outputs/credito-productividad-ranking-acumulado.output';
 import {
-  CreditoProductividadRankingAcumuladoOutput
-} from './dto/outputs/credito-productividad-ranking-acumulado.output';
+  CreditoPersonasRelacionadasCreditosInput,
+  CreditoPersonasRelacionadasInput,
+} from './dto/inputs/credito-personas-relacionadas.input';
+import {
+  CreditoPersonasRelacionadasCreditosOutput,
+  CreditoPersonasRelacionadasResumenOutput,
+} from './dto/outputs/credito-personas-relacionadas.output';
 
 
 @Injectable()
@@ -169,6 +175,14 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       valorDb: 'Venc. en Litigio',
     },
   ] as const;
+
+  private readonly _personasRelacionadas = [
+    '2 consejo administracion',
+    '3 consejo de vigilancia',
+    '4 comite de credito',
+    '6 conyuges o parientes',
+    '7 funcionario',
+  ];
 
   async onModuleInit() {
     await this.$connect();
@@ -4349,7 +4363,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
   public async getProductividadTipoSocio(
     input: CreditoProductividadEjecutivoInput,
   ): Promise<CreditoProductividadTipoSocioOutput> {
-    const tipoSocioSql = this._buildProductividadTipoSocioSql();
+    const tipoSocioSql = this._buildSocioRelacionadoSql();
 
     const categoriaSql = Prisma.sql`
       CASE
@@ -5144,6 +5158,525 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         total: this._toNumber(row.total),
 
         sucursales: sucursalesPorUsuario.get(row.usuario) ?? [],
+      })),
+    };
+  }
+
+  // ====================================
+  // PERSONAS RELACIONADAS
+  // ====================================
+  public async getPersonasRelacionadasResumen(
+    input: CreditoPersonasRelacionadasInput,
+  ): Promise<CreditoPersonasRelacionadasResumenOutput> {
+    const controlId = await this._getUltimoControlCredito(
+      input.cooperativaId,
+    );
+
+    if (!controlId) {
+      return {
+        totalPrestamos: 0,
+        totalEntrega: 0,
+        totalSaldo: 0,
+        categorias: [],
+      };
+    }
+
+    /*
+     * Toda la cooperativa en el último C01.
+     *
+     * Este universo se utiliza únicamente como denominador
+     * para porcentajeEntrega y porcentajeSaldo.
+     *
+     * Aquí SÍ entran los créditos "1 No relacionado".
+     */
+    const cooperativaWhere = Prisma.sql`
+      r."RA01ControlId" = ${controlId}
+    `;
+
+    /*
+     * Todas las personas relacionadas.
+     *
+     * Excluye "1 No relacionado".
+     *
+     * Este universo se utiliza para:
+     * - totalPrestamos
+     * - totalEntrega
+     * - totalSaldo
+     */
+    const relacionadosWhere =
+      this._buildPersonasRelacionadasWhere(
+        controlId,
+      );
+
+    /*
+     * Categorías que se mostrarán.
+     *
+     * Sin tipoRelacion:
+     *   2, 3, 4, 6 y 7.
+     *
+     * Con tipoRelacion:
+     *   únicamente la categoría seleccionada.
+     */
+    const categoriasWhere =
+      this._buildPersonasRelacionadasWhere(
+        controlId,
+        input.tipoRelacion,
+      );
+
+    type TotalesRow = {
+      totalPrestamos: bigint;
+
+      totalEntrega:
+        | string
+        | number
+        | bigint
+        | Prisma.Decimal
+        | null;
+
+      totalSaldo:
+        | string
+        | number
+        | bigint
+        | Prisma.Decimal
+        | null;
+    };
+
+    type CategoriaRow = {
+      codigo: string;
+      tipoRelacion: string;
+      numeroPrestamos: bigint;
+
+      entrega:
+        | string
+        | number
+        | bigint
+        | Prisma.Decimal
+        | null;
+
+      saldo:
+        | string
+        | number
+        | bigint
+        | Prisma.Decimal
+        | null;
+    };
+
+    const [
+      cooperativaRows,
+      relacionadosRows,
+      categoriasRows,
+    ] = await Promise.all([
+      /*
+       * 1. Totales de TODA la cooperativa.
+       *
+       * Sólo necesitamos los importes como denominadores
+       * para los porcentajes.
+       */
+      this.$queryRaw<TotalesRow[]>(
+        Prisma.sql`
+          SELECT
+            COUNT(*)::bigint
+            AS "totalPrestamos",
+
+            COALESCE(
+              SUM(r."RA01CEntregada"),
+              0
+            )::bigint
+            AS "totalEntrega",
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            )
+              AS "totalSaldo"
+
+          FROM "RA01Credito" r
+
+          WHERE ${cooperativaWhere}
+        `,
+      ),
+
+      /*
+       * 2. Totales de PERSONAS RELACIONADAS.
+       *
+       * Estos son los valores que regresaremos como:
+       * - totalPrestamos
+       * - totalEntrega
+       * - totalSaldo
+       */
+      this.$queryRaw<TotalesRow[]>(
+        Prisma.sql`
+          SELECT
+            COUNT(*)::bigint
+            AS "totalPrestamos",
+
+            COALESCE(
+              SUM(r."RA01CEntregada"),
+              0
+            )::bigint
+            AS "totalEntrega",
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            )
+              AS "totalSaldo"
+
+          FROM "RA01Credito" r
+
+          WHERE ${relacionadosWhere}
+        `,
+      ),
+
+      /*
+       * 3. Desglose por tipo de relación.
+       *
+       * Puede devolver todas las categorías o únicamente
+       * la seleccionada mediante tipoRelacion.
+       */
+      this.$queryRaw<CategoriaRow[]>(
+        Prisma.sql`
+        SELECT
+          ${this._buildSocioRelacionadoCodigoSql()}
+            AS "codigo",
+
+          TRIM(r."RA01SocioRelacionado")
+            AS "tipoRelacion",
+
+          COUNT(*)::bigint
+            AS "numeroPrestamos",
+
+          COALESCE(
+            SUM(r."RA01CEntregada"),
+            0
+          )::bigint
+            AS "entrega",
+
+          COALESCE(
+            SUM(r."RA01TotalCartera"),
+            0
+          )
+            AS "saldo"
+
+        FROM "RA01Credito" r
+
+        WHERE ${categoriasWhere}
+
+        GROUP BY
+          ${this._buildSocioRelacionadoCodigoSql()},
+          TRIM(r."RA01SocioRelacionado")
+
+        ORDER BY
+          MIN(
+            CASE
+              WHEN
+                ${this._buildSocioRelacionadoCodigoSql()}
+                ~ '^[0-9]+$'
+              THEN
+                ${this._buildSocioRelacionadoCodigoSql()}::int
+              ELSE 999
+            END
+          ) ASC
+      `,
+      ),
+    ]);
+
+    /*
+     * Totales de toda la cooperativa.
+     *
+     * No se regresan directamente al frontend.
+     * Sólo funcionan como denominadores.
+     */
+    const cooperativa =
+      cooperativaRows[0];
+
+    const totalEntregaCooperativa =
+      this._toNumber(
+        cooperativa?.totalEntrega,
+      );
+
+    const totalSaldoCooperativa =
+      this._toNumber(
+        cooperativa?.totalSaldo,
+      );
+
+    /*
+     * Totales de personas relacionadas.
+     *
+     * Estos SÍ forman parte del Output.
+     */
+    const relacionados =
+      relacionadosRows[0];
+
+    const totalPrestamos =
+      Number(
+        relacionados?.totalPrestamos ?? 0,
+      );
+
+    const totalEntrega =
+      this._toNumber(
+        relacionados?.totalEntrega,
+      );
+
+    const totalSaldo =
+      this._toNumber(
+        relacionados?.totalSaldo,
+      );
+
+    /*
+     * Cada categoría conserva sus propios montos,
+     * pero los porcentajes se calculan contra
+     * TODA la cooperativa.
+     */
+    const categorias =
+      categoriasRows.map((row) => {
+        const entrega =
+          this._toNumber(
+            row.entrega,
+          );
+
+        const saldo =
+          this._toNumber(
+            row.saldo,
+          );
+
+        return {
+          codigo:
+          row.codigo,
+
+          tipoRelacion:
+          row.tipoRelacion,
+
+          numeroPrestamos:
+            Number(
+              row.numeroPrestamos,
+            ),
+
+          entrega,
+
+          porcentajeEntrega:
+            totalEntregaCooperativa > 0
+              ? (
+              entrega /
+              totalEntregaCooperativa
+            ) * 100
+              : 0,
+
+          saldo,
+
+          porcentajeSaldo:
+            totalSaldoCooperativa > 0
+              ? (
+              saldo /
+              totalSaldoCooperativa
+            ) * 100
+              : 0,
+        };
+      });
+
+    return {
+      totalPrestamos,
+      totalEntrega,
+      totalSaldo,
+      categorias,
+    };
+  }
+
+  public async getPersonasRelacionadasCreditos(
+    input: CreditoPersonasRelacionadasCreditosInput,
+  ): Promise<CreditoPersonasRelacionadasCreditosOutput> {
+    const controlId = await this._getUltimoControlCredito(input.cooperativaId);
+
+    if (!controlId) {
+      return {
+        total: 0,
+        page: input.page,
+        pageSize: input.pageSize,
+        totalPages: 0,
+        items: [],
+      };
+    }
+
+    const where = this._buildPersonasRelacionadasWhere(
+      controlId,
+      input.tipoRelacion,
+    );
+
+    const offset = (input.page - 1) * input.pageSize;
+
+    type CountRow = {
+      total: bigint;
+    };
+
+    type CreditoRow = {
+      prestamo: string;
+      cag: string;
+      socio: string;
+
+      sucursalNumero: string;
+      sucursalNombre: string | null;
+
+      entrega: string | number | bigint | Prisma.Decimal | null;
+
+      saldo: string | number | bigint | Prisma.Decimal | null;
+
+      categoria: string;
+      clasificacion: string;
+      tipoRelacion: string;
+
+      fechaEntrega: string;
+      fechaVencimiento: string;
+
+      plazo: number;
+      abonos: string;
+      situacion: string;
+
+      tasaOrdinaria: string | number | bigint | Prisma.Decimal | null;
+
+      capitalVigente: string | number | bigint | Prisma.Decimal | null;
+
+      capitalVencido: string | number | bigint | Prisma.Decimal | null;
+    };
+
+    const [countRows, rows] = await Promise.all([
+      this.$queryRaw<CountRow[]>(
+        Prisma.sql`
+          SELECT
+            COUNT(*)::bigint AS "total"
+
+          FROM "RA01Credito" r
+
+          WHERE ${where}
+        `,
+      ),
+
+      this.$queryRaw<CreditoRow[]>(
+        Prisma.sql`
+          SELECT
+            r."RA01NumeroDeCredito"
+              AS "prestamo",
+
+            r."RA01NumeroCag"
+              AS "cag",
+
+            r."RA01Nombre"
+              AS "socio",
+
+            r."RA01Sucursal"
+              AS "sucursalNumero",
+
+            s."R11Nom"
+              AS "sucursalNombre",
+
+            r."RA01CEntregada"
+              AS "entrega",
+
+            r."RA01TotalCartera"
+              AS "saldo",
+
+            r."RA01Categoria"
+              AS "categoria",
+
+            r."RA01Tipo"
+              AS "clasificacion",
+
+            r."RA01SocioRelacionado"
+              AS "tipoRelacion",
+
+            r."RA01FEntrega"
+              AS "fechaEntrega",
+
+            r."RA01FVencimiento"
+              AS "fechaVencimiento",
+
+            r."RA01Plazo"
+              AS "plazo",
+
+            r."RA01Abonos"
+              AS "abonos",
+
+            r."RA01SituacionDelCredito"
+              AS "situacion",
+
+            r."RA01TasaOrdinaria"
+              AS "tasaOrdinaria",
+
+            r."RA01SaldoCapitalCartVig"
+              AS "capitalVigente",
+
+            r."RA01SaldoCapitalCartVen"
+              AS "capitalVencido"
+
+          FROM "RA01Credito" r
+
+          INNER JOIN "C01ControlCarga" c
+            ON c."C01Id" =
+               r."RA01ControlId"
+
+          LEFT JOIN "R11Sucursal" s
+            ON s."R11Coop_id" =
+               c."C01CooperativaCodigo"
+
+            AND TRIM(s."R11NumSuc") =
+                TRIM(r."RA01Sucursal")
+
+          WHERE ${where}
+
+          ORDER BY
+            r."RA01Nombre" ASC,
+            r."RA01NumeroDeCredito" ASC
+
+          LIMIT ${input.pageSize}
+          OFFSET ${offset}
+        `,
+      ),
+    ]);
+
+    const total = Number(countRows[0]?.total ?? 0);
+
+    return {
+      total,
+
+      page: input.page,
+
+      pageSize: input.pageSize,
+
+      totalPages: total > 0 ? Math.ceil(total / input.pageSize) : 0,
+
+      items: rows.map((row) => ({
+        prestamo: row.prestamo,
+        cag: row.cag,
+        socio: row.socio,
+
+        sucursalNumero: row.sucursalNumero,
+
+        sucursalNombre: row.sucursalNombre ?? row.sucursalNumero,
+
+        entrega: this._toNumber(row.entrega),
+
+        saldo: this._toNumber(row.saldo),
+
+        categoria: row.categoria,
+
+        clasificacion: row.clasificacion,
+
+        tipoRelacion: row.tipoRelacion,
+
+        fechaEntrega: row.fechaEntrega,
+
+        fechaVencimiento: row.fechaVencimiento,
+
+        plazo: row.plazo,
+
+        abonos: row.abonos,
+
+        situacion: row.situacion,
+
+        tasaOrdinaria: this._toNumber(row.tasaOrdinaria),
+
+        capitalVigente: this._toNumber(row.capitalVigente),
+
+        capitalVencido: this._toNumber(row.capitalVencido),
       })),
     };
   }
@@ -7436,7 +7969,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     };
   }
 
-  private _buildProductividadTipoSocioSql(): Prisma.Sql {
+  private _buildSocioRelacionadoSql(): Prisma.Sql {
     return Prisma.sql`
       LOWER(
         TRANSLATE(
@@ -7460,7 +7993,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     `;
   }
 
-  private _buildProductividadSituacionSql(): Prisma.Sql {
+  private _buildSituacionCreditoSql(): Prisma.Sql {
     return Prisma.sql`
       LOWER(
         TRANSLATE(
@@ -7472,8 +8005,18 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     `;
   }
 
+  private _buildSocioRelacionadoCodigoSql(): Prisma.Sql {
+    return Prisma.sql`
+    SPLIT_PART(
+      ${this._buildSocioRelacionadoSql()},
+      ' ',
+      1
+    )
+  `;
+  }
+
   private _buildProductividadSituacionCategoriaSql(): Prisma.Sql {
-    const situacionSql = this._buildProductividadSituacionSql();
+    const situacionSql = this._buildSituacionCreditoSql();
 
     return Prisma.sql`
       CASE
@@ -8134,5 +8677,57 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
   
     TRIM(r."RA01Sucursal") ASC
   `);
+  }
+
+  private async _getUltimoControlCredito(
+    cooperativaId: string,
+  ): Promise<number | null> {
+    const control = await this.c01ControlCarga.findFirst({
+      where: {
+        C01CooperativaCodigo: cooperativaId,
+        C01Area: RADIO_AREA.CREDITO,
+      },
+      orderBy: [
+        {
+          C01FechaCarga: 'desc',
+        },
+        {
+          C01Id: 'desc',
+        },
+      ],
+      select: {
+        C01Id: true,
+      },
+    });
+
+    return control?.C01Id ?? null;
+  }
+
+  private _buildPersonasRelacionadasWhere(
+    controlId: number,
+    tipoRelacion?: string,
+  ): Prisma.Sql {
+    const codigoRelacion = this._buildSocioRelacionadoCodigoSql();
+
+    const tipoRelacionSql = tipoRelacion
+      ? Prisma.sql`
+          AND ${codigoRelacion}
+              = ${tipoRelacion}
+        `
+      : Prisma.empty;
+
+    return Prisma.sql`
+    r."RA01ControlId" = ${controlId}
+
+    AND ${codigoRelacion} IN (
+      '2',
+      '3',
+      '4',
+      '6',
+      '7'
+    )
+
+    ${tipoRelacionSql}
+  `;
   }
 }

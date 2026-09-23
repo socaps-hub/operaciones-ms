@@ -64,6 +64,14 @@ import { CreditoProductividadRankingMensualOutput } from './dto/outputs/credito-
 import {
   CreditoProductividadRankingAcumuladoOutput
 } from './dto/outputs/credito-productividad-ranking-acumulado.output';
+import {
+  CreditoPersonasRelacionadasCreditosInput,
+  CreditoPersonasRelacionadasInput,
+} from './dto/inputs/credito-personas-relacionadas.input';
+import {
+  CreditoPersonasRelacionadasCreditosOutput,
+  CreditoPersonasRelacionadasResumenOutput,
+} from './dto/outputs/credito-personas-relacionadas.output';
 
 @Controller()
 export class CreditoHandler {
@@ -299,5 +307,22 @@ export class CreditoHandler {
     @Payload() input: CreditoProductividadRankingPageInput,
   ): Promise<CreditoProductividadRankingAcumuladoOutput> {
     return this._service.getProductividadRankingAcumulado(input);
+  }
+
+  // ======================================
+  // PERSONAS RELACIONADAS
+  // ======================================
+  @MessagePattern('operaciones.credito.getPersonasRelacionadasResumen')
+  public async getPersonasRelacionadasResumen(
+    @Payload() input: CreditoPersonasRelacionadasInput,
+  ): Promise<CreditoPersonasRelacionadasResumenOutput> {
+    return this._service.getPersonasRelacionadasResumen(input);
+  }
+
+  @MessagePattern('operaciones.credito.getPersonasRelacionadasCreditos')
+  public async getPersonasRelacionadasCreditos(
+    @Payload() input: CreditoPersonasRelacionadasCreditosInput,
+  ): Promise<CreditoPersonasRelacionadasCreditosOutput> {
+    return this._service.getPersonasRelacionadasCreditos(input);
   }
 }
