@@ -72,6 +72,12 @@ import {
   CreditoPersonasRelacionadasCreditosOutput,
   CreditoPersonasRelacionadasResumenOutput,
 } from './dto/outputs/credito-personas-relacionadas.output';
+import { CreditoMayoresSaldosInput } from './dto/inputs/credito-mayores-saldos.input';
+import { CreditoMayoresSaldosOutput } from './dto/outputs/credito-mayores-saldo.output';
+import { CreditoSociosMayormenteAcreditadosInput } from './dto/inputs/credito-socios-mayormente-acreditados.input';
+import { CreditoSociosMayormenteAcreditadosOutput } from './dto/outputs/credito-socios-mayormente-acreditados.output';
+import { CreditoSociosMayoresSaldosInput } from './dto/inputs/credito-socios-mayores-saldos.input';
+import { CreditoSociosMayoresSaldosOutput } from './dto/outputs/credito-socios-mayores-saldos.output';
 
 @Controller()
 export class CreditoHandler {
@@ -324,5 +330,29 @@ export class CreditoHandler {
     @Payload() input: CreditoPersonasRelacionadasCreditosInput,
   ): Promise<CreditoPersonasRelacionadasCreditosOutput> {
     return this._service.getPersonasRelacionadasCreditos(input);
+  }
+
+  // ====================================
+  // 20+
+  // ====================================
+  @MessagePattern('operaciones.credito.getMayoresSaldos')
+  public async getMayoresSaldos(
+    @Payload() input: CreditoMayoresSaldosInput,
+  ): Promise<CreditoMayoresSaldosOutput> {
+    return this._service.getMayoresSaldos(input);
+  }
+
+  @MessagePattern('operaciones.credito.getSociosMayormenteAcreditados')
+  public async getSociosMayormenteAcreditados(
+    @Payload() input: CreditoSociosMayormenteAcreditadosInput,
+  ): Promise<CreditoSociosMayormenteAcreditadosOutput> {
+    return this._service.getSociosMayormenteAcreditados(input);
+  }
+
+  @MessagePattern('operaciones.credito.getSociosMayoresSaldos')
+  public async getSociosMayoresSaldos(
+    @Payload() input: CreditoSociosMayoresSaldosInput,
+  ): Promise<CreditoSociosMayoresSaldosOutput> {
+    return this._service.getSociosMayoresSaldos(input);
   }
 }
