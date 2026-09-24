@@ -78,6 +78,7 @@ enum CargaEstado {
 
 enum RADIO_AREA {
   CREDITO
+  CAPTACION
 }
 
 enum OP_META_AREA {
@@ -568,6 +569,8 @@ model C01ControlCarga {
   C01Area              RADIO_AREA @default(CREDITO)
 
   creditos    RA01Credito[]
+  captaciones RA02Captacion[]
+
   cooperativa R17Cooperativas @relation(fields: [C01CooperativaCodigo], references: [R17Id], onDelete: Cascade)
 
   @@unique([C01CooperativaCodigo, C01PeriodoMes, C01PeriodoAnio, C01Area])
@@ -683,6 +686,63 @@ model RA01Credito {
   @@index([RA01ControlId])
   @@index([RA01ControlId, RA01Sucursal])
   @@index([RA01ControlId, RA01FEntrega])
+}
+
+// CAPTACION
+// CAPTACIÓN
+model RA02Captacion {
+  RA02Folio Int @id @default(autoincrement())
+
+  RA02Nombre      String // NOMBRE
+  RA02Sexo        String // SEXO
+  RA02Ocupacion   String // OCUPACION
+  RA02Escolaridad String // ESCOLARIDAD
+  RA02Cag         String // CAG
+  RA02TipoPersona String // TIPO PERSONA
+
+  RA02FechaIngreso    String // FECHA INGRESO
+  RA02FechaNacimiento String // FECHA NACIMIENTO
+  RA02FechaApertura   String // FECHA APERTURA
+  RA02Vencimiento     String // VENCIMIENTO
+
+  RA02PlazoDias Int // PLAZO EN DIAS
+  RA02TasaAnual Decimal @db.Decimal(18, 2) // TASA ANUAL
+
+  RA02SaldoCapital Decimal @db.Decimal(18, 2) // SALDO CAPITAL
+  RA02DevengadosPf Decimal @db.Decimal(18, 2) // DEVENGADOS PF
+  RA02SaldoTotal   Decimal @db.Decimal(18, 2) // SALDO TOTAL
+  RA02Depositos    Decimal @db.Decimal(18, 2) // DEPOSITOS
+  RA02Retiros      Decimal @db.Decimal(18, 2) // RETIROS
+
+  RA02Sucursal              String // SUCURSAL
+  RA02Producto              String // PRODUCTO
+  RA02ClasificacionContable String // CLASIFICACION CONTABLE
+  RA02Riesgos               String // RIESGOS
+
+  RA02Direccion String // DIRECCION
+  RA02Colonia   String // COLONIA
+  RA02Localidad String // LOCALIDAD
+  RA02Municipio String // MUNICIPIO
+  RA02Estado    String // ESTADO
+
+  RA02UsuarioApertura String // USUARIO APERTURA
+  RA02Cuenta          String // CUENTA
+  RA02Relacion        String // RELACION
+  RA02Cargo           String // CARGO
+
+  RA02UltimoDeposito   String // ULTIMO DEPOSITO
+  RA02InteresDelMes    Decimal @db.Decimal(18, 2) // INTERES DEL MES
+  RA02UltimoMovimiento String // ULTIMO MOVIMIENTO
+
+  // Relación al lote/carga
+  RA02ControlId Int
+
+  control C01ControlCarga @relation(fields: [RA02ControlId], references: [C01Id], onDelete: Cascade)
+
+  @@index([RA02ControlId])
+  @@index([RA02ControlId, RA02Sucursal])
+  @@index([RA02ControlId, RA02Cag])
+  @@index([RA02ControlId, RA02Producto])
 }
 
 // ======================================================
