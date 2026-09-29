@@ -79,6 +79,7 @@ enum CargaEstado {
 enum RADIO_AREA {
   CREDITO
   CAPTACION
+  AFILIACION
 }
 
 enum OP_META_AREA {
@@ -568,8 +569,9 @@ model C01ControlCarga {
   C01PeriodoAnio       Int
   C01Area              RADIO_AREA @default(CREDITO)
 
-  creditos    RA01Credito[]
-  captaciones RA02Captacion[]
+  creditos     RA01Credito[]
+  captaciones  RA02Captacion[]
+  afiliaciones RA03Afiliacion[]
 
   cooperativa R17Cooperativas @relation(fields: [C01CooperativaCodigo], references: [R17Id], onDelete: Cascade)
 
@@ -743,6 +745,38 @@ model RA02Captacion {
   @@index([RA02ControlId, RA02Sucursal])
   @@index([RA02ControlId, RA02Cag])
   @@index([RA02ControlId, RA02Producto])
+}
+
+model RA03Afiliacion {
+  RA03Folio Int @id @default(autoincrement())
+
+  RA03Cag         String
+  RA03NombreSocio String
+  RA03Sexo        String
+  RA03Ocupacion   String
+  RA03Escolaridad String
+  RA03Riesgo      String
+
+  RA03Sucursal String
+
+  RA03FechaPagoParteSocial String
+  RA03ParteSocialPagada    Decimal @db.Decimal(18, 2)
+
+  RA03FechaRetiro String
+
+  RA03Monto  Decimal @db.Decimal(18, 2)
+  RA03Monto2 Decimal @db.Decimal(18, 2)
+
+  RA03TipoPersona String
+  RA03Anio        Int
+
+  RA03ControlId Int
+
+  control C01ControlCarga @relation(fields: [RA03ControlId], references: [C01Id], onDelete: Cascade)
+
+  @@index([RA03ControlId])
+  @@index([RA03ControlId, RA03Sucursal])
+  @@index([RA03ControlId, RA03Cag])
 }
 
 // ======================================================
