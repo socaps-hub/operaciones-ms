@@ -78,6 +78,8 @@ import { CreditoSociosMayormenteAcreditadosInput } from './dto/inputs/credito-so
 import { CreditoSociosMayormenteAcreditadosOutput } from './dto/outputs/credito-socios-mayormente-acreditados.output';
 import { CreditoSociosMayoresSaldosInput } from './dto/inputs/credito-socios-mayores-saldos.input';
 import { CreditoSociosMayoresSaldosOutput } from './dto/outputs/credito-socios-mayores-saldos.output';
+import { CreditoSocioDetalleInput } from './dto/inputs/credito-socio-detalle.input';
+import { CreditoSocioDetalleOutput } from './dto/outputs/credito-socio-detalle.output';
 
 @Controller()
 export class CreditoHandler {
@@ -354,5 +356,12 @@ export class CreditoHandler {
     @Payload() input: CreditoSociosMayoresSaldosInput,
   ): Promise<CreditoSociosMayoresSaldosOutput> {
     return this._service.getSociosMayoresSaldos(input);
+  }
+
+  @MessagePattern('operaciones.credito.getSocioDetalle')
+  public async getSocioDetalle(
+    @Payload() input: CreditoSocioDetalleInput,
+  ): Promise<CreditoSocioDetalleOutput> {
+    return this._service.getSocioDetalle(input);
   }
 }

@@ -156,6 +156,8 @@ import { CreditoSociosMayormenteAcreditadosInput } from './dto/inputs/credito-so
 import { CreditoSociosMayormenteAcreditadosOutput } from './dto/outputs/credito-socios-mayormente-acreditados.output';
 import { CreditoSociosMayoresSaldosInput } from './dto/inputs/credito-socios-mayores-saldos.input';
 import { CreditoSociosMayoresSaldosOutput } from './dto/outputs/credito-socios-mayores-saldos.output';
+import { CreditoSocioDetalleOutput } from './dto/outputs/credito-socio-detalle.output';
+import { CreditoSocioDetalleInput } from './dto/inputs/credito-socio-detalle.input';
 
 
 @Injectable()
@@ -5987,17 +5989,15 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
   public async getSociosMayormenteAcreditados(
     input: CreditoSociosMayormenteAcreditadosInput,
   ): Promise<CreditoSociosMayormenteAcreditadosOutput> {
-    const controlId = await this._getUltimoControlCredito(input.cooperativaId);
+    const controlId = await this._getUltimoControlCredito(
+      input.cooperativaId,
+    );
 
     if (!controlId) {
       return {
         periodoMes: 0,
         periodoAnio: 0,
         socios: [],
-        cagSeleccionado: null,
-        totalDesembolsoSeleccionado: 0,
-        totalSaldoSeleccionado: 0,
-        creditos: [],
         distribucionSucursales: [],
         totalCreditoOtorgado: 0,
         totalPrestamos: 0,
@@ -6014,475 +6014,17 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       },
     });
 
-    const periodoMes = control?.C01PeriodoMes ?? 0;
+    const periodoMes =
+      control?.C01PeriodoMes ?? 0;
 
-    const periodoAnio = control?.C01PeriodoAnio ?? 0;
+    const periodoAnio =
+      control?.C01PeriodoAnio ?? 0;
 
     type SocioRow = {
       cag: string;
       nombreSocio: string;
 
-      totalCreditoOtorgado: string | number | bigint | Prisma.Decimal | null;
-
-      numeroPrestamos: bigint;
-
-      sucursales: string[] | null;
-    };
-
-    /*
-     * TOP 20 SOCIOS
-     *
-     * La identidad del socio es RA01NumeroCag.
-     *
-     * No agrupamos por nombre ni sucursal porque:
-     * - un CAG puede tener varios créditos;
-     * - un CAG podría aparecer en distintas sucursales.
-     */
-    const sociosRows = await this.$queryRaw<SocioRow[]>(
-      Prisma.sql`
-        SELECT
-          r."RA01NumeroCag"
-            AS "cag",
-
-          MAX(TRIM(r."RA01Nombre"))
-            AS "nombreSocio",
-
-          COALESCE(
-            SUM(r."RA01CEntregada"),
-            0
-          )::bigint
-            AS "totalCreditoOtorgado",
-
-          COUNT(*)::bigint
-            AS "numeroPrestamos",
-
-          ARRAY_AGG(
-            DISTINCT TRIM(r."RA01Sucursal")
-            ORDER BY TRIM(r."RA01Sucursal")
-          )
-            AS "sucursales"
-
-        FROM "RA01Credito" r
-
-        WHERE
-          r."RA01ControlId" = ${controlId}
-
-        GROUP BY
-          r."RA01NumeroCag"
-
-        ORDER BY
-          SUM(r."RA01CEntregada") DESC,
-          r."RA01NumeroCag" ASC
-
-        LIMIT 20
-      `,
-    );
-
-    if (sociosRows.length === 0) {
-      return {
-        periodoMes: 0,
-        periodoAnio: 0,
-        socios: [],
-        cagSeleccionado: null,
-        totalDesembolsoSeleccionado: 0,
-        totalSaldoSeleccionado: 0,
-        creditos: [],
-        distribucionSucursales: [],
-        totalCreditoOtorgado: 0,
-        totalPrestamos: 0,
-      };
-    }
-
-    /*
-     * CAGs que realmente pertenecen al Top 20.
-     */
-    const topCags = sociosRows.map((row) => row.cag);
-
-    /*
-     * El CAG solicitado solamente es válido
-     * si pertenece al Top 20 actual.
-     *
-     * Si no viene CAG, seleccionamos el primero.
-     *
-     * Si llega un CAG que no pertenece al Top 20,
-     * también regresamos al primero para mantener
-     * consistente el dashboard.
-     */
-    const cagSeleccionado =
-      input.cag && topCags.includes(input.cag) ? input.cag : topCags[0];
-
-    /*
-     * Resolvemos los nombres de las sucursales
-     * utilizadas por cada socio.
-     *
-     * Esto evita asumir que un CAG pertenece
-     * necesariamente a una sola sucursal.
-     */
-    type SocioSucursalRow = {
-      cag: string;
-      sucursalNombre: string;
-    };
-
-    const sucursalesSociosRows = await this.$queryRaw<SocioSucursalRow[]>(
-      Prisma.sql`
-        SELECT DISTINCT
-          r."RA01NumeroCag"
-            AS "cag",
-
-          COALESCE(
-            s."R11Nom",
-            TRIM(r."RA01Sucursal")
-          )
-            AS "sucursalNombre"
-
-        FROM "RA01Credito" r
-
-        INNER JOIN "C01ControlCarga" c
-          ON c."C01Id" =
-             r."RA01ControlId"
-
-        LEFT JOIN "R11Sucursal" s
-          ON s."R11Coop_id" =
-             c."C01CooperativaCodigo"
-         AND TRIM(s."R11NumSuc") =
-             TRIM(r."RA01Sucursal")
-
-        WHERE
-          r."RA01ControlId" =
-            ${controlId}
-
-          AND r."RA01NumeroCag" IN (
-            ${Prisma.join(topCags)}
-          )
-
-        ORDER BY
-          r."RA01NumeroCag",
-          "sucursalNombre"
-      `,
-    );
-
-    const sucursalesPorCag = new Map<string, string[]>();
-
-    for (const row of sucursalesSociosRows) {
-      const actuales = sucursalesPorCag.get(row.cag) ?? [];
-
-      actuales.push(row.sucursalNombre);
-
-      sucursalesPorCag.set(row.cag, actuales);
-    }
-
-    const socios = sociosRows.map((row) => ({
-      cag: row.cag,
-
-      nombreSocio: row.nombreSocio,
-
-      sucursales: sucursalesPorCag.get(row.cag) ?? row.sucursales ?? [],
-
-      totalCreditoOtorgado: this._toNumber(row.totalCreditoOtorgado),
-
-      numeroPrestamos: Number(row.numeroPrestamos),
-    }));
-
-    /*
-     * Totales correspondientes EXCLUSIVAMENTE
-     * al Top 20.
-     */
-    const totalCreditoOtorgado = socios.reduce(
-      (total, socio) => total + socio.totalCreditoOtorgado,
-      0,
-    );
-
-    const totalPrestamos = socios.reduce(
-      (total, socio) => total + socio.numeroPrestamos,
-      0,
-    );
-
-    /*
-     * -------------------------------------------------
-     * DETALLE DEL CAG SELECCIONADO
-     * -------------------------------------------------
-     */
-
-    type CreditoRow = {
-      credito: string;
-
-      desembolso: string | number | bigint | Prisma.Decimal | null;
-
-      sucursalNumero: string;
-      sucursalNombre: string | null;
-
-      tipo: string;
-      formaPago: string;
-      producto: string;
-
-      fechaEntrega: string;
-      fechaVencimiento: string;
-
-      capitalVigente: string | number | bigint | Prisma.Decimal | null;
-
-      capitalVencido: string | number | bigint | Prisma.Decimal | null;
-
-      saldo: string | number | bigint | Prisma.Decimal | null;
-
-      diasMora: number;
-
-      tasa: string | number | bigint | Prisma.Decimal | null;
-    };
-
-    const creditosRows = await this.$queryRaw<CreditoRow[]>(
-      Prisma.sql`
-        SELECT
-          r."RA01NumeroDeCredito"
-            AS "credito",
-
-          r."RA01CEntregada"
-            AS "desembolso",
-
-          r."RA01Sucursal"
-            AS "sucursalNumero",
-
-          s."R11Nom"
-            AS "sucursalNombre",
-
-          r."RA01Tipo"
-            AS "tipo",
-
-          r."RA01FormaPago"
-            AS "formaPago",
-
-          r."RA01Categoria"
-            AS "producto",
-
-          r."RA01FEntrega"
-            AS "fechaEntrega",
-
-          r."RA01FVencimiento"
-            AS "fechaVencimiento",
-
-          r."RA01SaldoCapitalCartVig"
-            AS "capitalVigente",
-
-          r."RA01SaldoCapitalCartVen"
-            AS "capitalVencido",
-
-          r."RA01TotalCartera"
-            AS "saldo",
-
-          r."RA01DiasMora"
-            AS "diasMora",
-
-          r."RA01TasaOrdinaria"
-            AS "tasa"
-
-        FROM "RA01Credito" r
-
-        INNER JOIN "C01ControlCarga" c
-          ON c."C01Id" =
-             r."RA01ControlId"
-
-        LEFT JOIN "R11Sucursal" s
-          ON s."R11Coop_id" =
-             c."C01CooperativaCodigo"
-         AND TRIM(s."R11NumSuc") =
-             TRIM(r."RA01Sucursal")
-
-        WHERE
-          r."RA01ControlId" =
-            ${controlId}
-
-          AND r."RA01NumeroCag" =
-            ${cagSeleccionado}
-
-        ORDER BY
-          r."RA01CEntregada" DESC,
-          r."RA01Folio" ASC
-      `,
-    );
-
-    const creditos = creditosRows.map((row) => ({
-      credito: row.credito,
-
-      desembolso: this._toNumber(row.desembolso),
-
-      sucursalNumero: row.sucursalNumero,
-
-      sucursalNombre: row.sucursalNombre ?? row.sucursalNumero,
-
-      tipo: row.tipo,
-
-      formaPago: row.formaPago,
-
-      producto: row.producto,
-
-      fechaEntrega: row.fechaEntrega,
-
-      fechaVencimiento: row.fechaVencimiento,
-
-      capitalVigente: this._toNumber(row.capitalVigente),
-
-      capitalVencido: this._toNumber(row.capitalVencido),
-
-      saldo: this._toNumber(row.saldo),
-
-      diasMora: row.diasMora,
-
-      tasa: this._toNumber(row.tasa),
-    }));
-
-    const totalDesembolsoSeleccionado = creditos.reduce(
-      (total, credito) => total + credito.desembolso,
-      0,
-    );
-
-    const totalSaldoSeleccionado = creditos.reduce(
-      (total, credito) => total + credito.saldo,
-      0,
-    );
-
-    /*
-     * -------------------------------------------------
-     * DISTRIBUCIÓN POR SUCURSAL
-     * -------------------------------------------------
-     *
-     * Importante:
-     *
-     * Se consideran únicamente los créditos
-     * pertenecientes a los CAG del Top 20.
-     *
-     * Cada crédito aporta su RA01CEntregada
-     * a SU propia sucursal.
-     */
-
-    type DistribucionRow = {
-      sucursalNumero: string;
-      sucursalNombre: string | null;
-
-      monto: string | number | bigint | Prisma.Decimal | null;
-    };
-
-    const distribucionRows = await this.$queryRaw<DistribucionRow[]>(
-      Prisma.sql`
-        SELECT
-          TRIM(r."RA01Sucursal")
-            AS "sucursalNumero",
-
-          s."R11Nom"
-            AS "sucursalNombre",
-
-          COALESCE(
-            SUM(r."RA01CEntregada"),
-            0
-          )::bigint
-            AS "monto"
-
-        FROM "RA01Credito" r
-
-        INNER JOIN "C01ControlCarga" c
-          ON c."C01Id" =
-             r."RA01ControlId"
-
-        LEFT JOIN "R11Sucursal" s
-          ON s."R11Coop_id" =
-             c."C01CooperativaCodigo"
-         AND TRIM(s."R11NumSuc") =
-             TRIM(r."RA01Sucursal")
-
-        WHERE
-          r."RA01ControlId" =
-            ${controlId}
-
-          AND r."RA01NumeroCag" IN (
-            ${Prisma.join(topCags)}
-          )
-
-        GROUP BY
-          TRIM(r."RA01Sucursal"),
-          s."R11Nom"
-
-        ORDER BY
-          SUM(r."RA01CEntregada") DESC,
-          TRIM(r."RA01Sucursal") ASC
-      `,
-    );
-
-    const distribucionSucursales = distribucionRows.map((row) => {
-      const monto = this._toNumber(row.monto);
-
-      return {
-        sucursalNumero: row.sucursalNumero,
-
-        sucursalNombre: row.sucursalNombre ?? row.sucursalNumero,
-
-        monto,
-
-        porcentaje:
-          totalCreditoOtorgado > 0 ? (monto / totalCreditoOtorgado) * 100 : 0,
-      };
-    });
-
-    return {
-      periodoMes,
-      periodoAnio,
-      socios,
-      cagSeleccionado,
-      totalDesembolsoSeleccionado,
-      totalSaldoSeleccionado,
-      creditos,
-      distribucionSucursales,
-      totalCreditoOtorgado,
-      totalPrestamos,
-    };
-  }
-
-  public async getSociosMayoresSaldos(
-    input: CreditoSociosMayoresSaldosInput,
-  ): Promise<CreditoSociosMayoresSaldosOutput> {
-
-    const controlId =
-      await this._getUltimoControlCredito(
-        input.cooperativaId,
-      );
-
-    if (!controlId) {
-      return {
-        periodoMes: 0,
-        periodoAnio: 0,
-        socios: [],
-        cagSeleccionado: null,
-        totalDesembolsoSeleccionado: 0,
-        totalSaldoSeleccionado: 0,
-        creditos: [],
-        distribucionSucursales: [],
-        totalSaldo: 0,
-        totalPrestamos: 0,
-      };
-    }
-
-    const control = await this.c01ControlCarga.findUnique({
-      where: {
-        C01Id: controlId,
-      },
-      select: {
-        C01PeriodoMes: true,
-        C01PeriodoAnio: true,
-      },
-    });
-
-    const periodoMes = control?.C01PeriodoMes ?? 0;
-
-    const periodoAnio = control?.C01PeriodoAnio ?? 0;
-
-    /*
-     * -------------------------------------------------
-     * TOP 20 SOCIOS POR SALDO
-     * -------------------------------------------------
-     */
-
-    type SocioRow = {
-      cag: string;
-      nombreSocio: string;
-
-      saldo:
+      totalCreditoOtorgado:
         | string
         | number
         | bigint
@@ -6490,91 +6032,97 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
         | null;
 
       numeroPrestamos: bigint;
+
+      sucursales: string[] | null;
     };
 
+    /*
+     * -------------------------------------------------
+     * TOP 20 SOCIOS
+     * -------------------------------------------------
+     *
+     * La identidad del socio es RA01NumeroCag.
+     *
+     * No agrupamos por nombre ni sucursal porque:
+     * - un CAG puede tener varios créditos;
+     * - un CAG podría aparecer en distintas sucursales.
+     */
     const sociosRows =
       await this.$queryRaw<SocioRow[]>(
         Prisma.sql`
-        SELECT
-          r."RA01NumeroCag"
-            AS "cag",
+          SELECT
+            r."RA01NumeroCag"
+              AS "cag",
 
-          MAX(TRIM(r."RA01Nombre"))
-            AS "nombreSocio",
+            MAX(TRIM(r."RA01Nombre"))
+              AS "nombreSocio",
 
-          COALESCE(
-            SUM(r."RA01TotalCartera"),
-            0
-          )::numeric
-            AS "saldo",
+            COALESCE(
+              SUM(r."RA01CEntregada"),
+              0
+            )::bigint
+            AS "totalCreditoOtorgado",
 
-          COUNT(*)::bigint
-            AS "numeroPrestamos"
+            COUNT(*)::bigint
+            AS "numeroPrestamos",
 
-        FROM "RA01Credito" r
+            ARRAY_AGG(
+              DISTINCT TRIM(r."RA01Sucursal")
+            ORDER BY TRIM(r."RA01Sucursal")
+          )
+              AS "sucursales"
 
-        WHERE
-          r."RA01ControlId" = ${controlId}
+          FROM "RA01Credito" r
 
-        GROUP BY
-          r."RA01NumeroCag"
+          WHERE
+            r."RA01ControlId" = ${controlId}
 
-        ORDER BY
-          SUM(r."RA01TotalCartera") DESC,
-          r."RA01NumeroCag" ASC
+          GROUP BY
+            r."RA01NumeroCag"
 
-        LIMIT 20
-      `,
+          ORDER BY
+            SUM(r."RA01CEntregada") DESC,
+            r."RA01NumeroCag" ASC
+
+            LIMIT 20
+        `,
       );
 
     if (sociosRows.length === 0) {
       return {
-        periodoMes: 0,
-        periodoAnio: 0,
+        periodoMes,
+        periodoAnio,
         socios: [],
-        cagSeleccionado: null,
-        totalDesembolsoSeleccionado: 0,
-        totalSaldoSeleccionado: 0,
-        creditos: [],
         distribucionSucursales: [],
-        totalSaldo: 0,
+        totalCreditoOtorgado: 0,
         totalPrestamos: 0,
       };
     }
 
+    /*
+     * CAGs pertenecientes al Top 20.
+     *
+     * Se conservan porque se utilizan para calcular
+     * la distribución por sucursal exclusivamente
+     * sobre los créditos de estos socios.
+     */
     const topCags =
       sociosRows.map(
         (row) => row.cag,
       );
 
     /*
-     * Si el CAG recibido pertenece al Top 20,
-     * se utiliza.
-     *
-     * En caso contrario usamos el primero
-     * del ranking.
-     */
-    const cagSeleccionado =
-      input.cag &&
-      topCags.includes(input.cag)
-        ? input.cag
-        : topCags[0];
-
-    /*
      * -------------------------------------------------
      * SUCURSALES DE CADA CAG
      * -------------------------------------------------
      */
-
     type SocioSucursalRow = {
       cag: string;
       sucursalNombre: string;
     };
 
     const sucursalesSociosRows =
-      await this.$queryRaw<
-        SocioSucursalRow[]
-      >(
+      await this.$queryRaw<SocioSucursalRow[]>(
         Prisma.sql`
         SELECT DISTINCT
           r."RA01NumeroCag"
@@ -6616,14 +6164,9 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     const sucursalesPorCag =
       new Map<string, string[]>();
 
-    for (
-      const row of
-      sucursalesSociosRows
-      ) {
+    for (const row of sucursalesSociosRows) {
       const actuales =
-        sucursalesPorCag.get(
-          row.cag,
-        ) ?? [];
+        sucursalesPorCag.get(row.cag) ?? [];
 
       actuales.push(
         row.sucursalNombre,
@@ -6647,11 +6190,13 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
           sucursales:
             sucursalesPorCag.get(
               row.cag,
-            ) ?? [],
+            ) ??
+            row.sucursales ??
+            [],
 
-          saldo:
+          totalCreditoOtorgado:
             this._toNumber(
-              row.saldo,
+              row.totalCreditoOtorgado,
             ),
 
           numeroPrestamos:
@@ -6662,26 +6207,20 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       );
 
     /*
-     * Total correspondiente exclusivamente
+     * Totales correspondientes exclusivamente
      * a los 20 socios del ranking.
      */
-    const totalSaldo =
+    const totalCreditoOtorgado =
       socios.reduce(
-        (
-          total,
-          socio,
-        ) =>
+        (total, socio) =>
           total +
-          socio.saldo,
+          socio.totalCreditoOtorgado,
         0,
       );
 
     const totalPrestamos =
       socios.reduce(
-        (
-          total,
-          socio,
-        ) =>
+        (total, socio) =>
           total +
           socio.numeroPrestamos,
         0,
@@ -6689,9 +6228,426 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
 
     /*
      * -------------------------------------------------
-     * DESGLOSE DEL CAG SELECCIONADO
+     * DISTRIBUCIÓN POR SUCURSAL
+     * -------------------------------------------------
+     *
+     * Se consideran únicamente los créditos
+     * pertenecientes a los CAG del Top 20.
+     *
+     * Cada crédito aporta RA01CEntregada
+     * a su propia sucursal.
+     */
+    type DistribucionRow = {
+      sucursalNumero: string;
+      sucursalNombre: string | null;
+
+      monto:
+        | string
+        | number
+        | bigint
+        | Prisma.Decimal
+        | null;
+    };
+
+    const distribucionRows =
+      await this.$queryRaw<DistribucionRow[]>(
+        Prisma.sql`
+          SELECT
+            TRIM(r."RA01Sucursal")
+              AS "sucursalNumero",
+
+            s."R11Nom"
+              AS "sucursalNombre",
+
+            COALESCE(
+              SUM(r."RA01CEntregada"),
+              0
+            )::bigint
+            AS "monto"
+
+          FROM "RA01Credito" r
+
+                 INNER JOIN "C01ControlCarga" c
+                            ON c."C01Id" =
+                               r."RA01ControlId"
+
+                 LEFT JOIN "R11Sucursal" s
+                           ON s."R11Coop_id" =
+                              c."C01CooperativaCodigo"
+
+                             AND TRIM(s."R11NumSuc") =
+                                 TRIM(r."RA01Sucursal")
+
+          WHERE
+            r."RA01ControlId" =
+            ${controlId}
+
+            AND r."RA01NumeroCag" IN (
+            ${Prisma.join(topCags)}
+            )
+
+          GROUP BY
+            TRIM(r."RA01Sucursal"),
+            s."R11Nom"
+
+          ORDER BY
+            SUM(r."RA01CEntregada") DESC,
+            TRIM(r."RA01Sucursal") ASC
+        `,
+      );
+
+    const distribucionSucursales =
+      distribucionRows.map(
+        (row) => {
+          const monto =
+            this._toNumber(
+              row.monto,
+            );
+
+          return {
+            sucursalNumero:
+            row.sucursalNumero,
+
+            sucursalNombre:
+              row.sucursalNombre ??
+              row.sucursalNumero,
+
+            monto,
+
+            porcentaje:
+              totalCreditoOtorgado > 0
+                ? (
+                monto /
+                totalCreditoOtorgado
+              ) * 100
+                : 0,
+          };
+        },
+      );
+
+    return {
+      periodoMes,
+      periodoAnio,
+      socios,
+      distribucionSucursales,
+      totalCreditoOtorgado,
+      totalPrestamos,
+    };
+  }
+
+  public async getSociosMayoresSaldos(
+    input: CreditoSociosMayoresSaldosInput,
+  ): Promise<CreditoSociosMayoresSaldosOutput> {
+    const controlId =
+      await this._getUltimoControlCredito(
+        input.cooperativaId,
+      );
+
+    if (!controlId) {
+      return {
+        periodoMes: 0,
+        periodoAnio: 0,
+        socios: [],
+        distribucionSucursales: [],
+        totalSaldo: 0,
+        totalPrestamos: 0,
+      };
+    }
+
+    const control = await this.c01ControlCarga.findUnique({
+      where: {
+        C01Id: controlId,
+      },
+      select: {
+        C01PeriodoMes: true,
+        C01PeriodoAnio: true,
+      },
+    });
+
+    const periodoMes = control?.C01PeriodoMes ?? 0;
+
+    const periodoAnio = control?.C01PeriodoAnio ?? 0;
+
+    /*
+     * -------------------------------------------------
+     * TOP 20 SOCIOS POR SALDO
      * -------------------------------------------------
      */
+    type SocioRow = {
+      cag: string;
+      nombreSocio: string;
+
+      saldo: string | number | bigint | Prisma.Decimal | null;
+
+      numeroPrestamos: bigint;
+    };
+
+    const sociosRows = await this.$queryRaw<SocioRow[]>(
+      Prisma.sql`
+          SELECT
+            r."RA01NumeroCag"
+              AS "cag",
+
+            MAX(TRIM(r."RA01Nombre"))
+              AS "nombreSocio",
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            )::numeric
+            AS "saldo",
+
+            COUNT(*)::bigint
+            AS "numeroPrestamos"
+
+          FROM "RA01Credito" r
+
+          WHERE
+            r."RA01ControlId" =
+            ${controlId}
+
+          GROUP BY
+            r."RA01NumeroCag"
+
+          ORDER BY
+            SUM(r."RA01TotalCartera") DESC,
+            r."RA01NumeroCag" ASC
+
+            LIMIT 20
+        `,
+    );
+
+    if (sociosRows.length === 0) {
+      return {
+        periodoMes,
+        periodoAnio,
+        socios: [],
+        distribucionSucursales: [],
+        totalSaldo: 0,
+        totalPrestamos: 0,
+      };
+    }
+
+    /*
+     * CAGs pertenecientes al Top 20.
+     *
+     * Se utilizan para resolver sucursales
+     * y para calcular la distribución.
+     */
+    const topCags = sociosRows.map((row) => row.cag);
+
+    /*
+     * -------------------------------------------------
+     * SUCURSALES DE CADA CAG
+     * -------------------------------------------------
+     */
+    type SocioSucursalRow = {
+      cag: string;
+      sucursalNombre: string;
+    };
+
+    const sucursalesSociosRows = await this.$queryRaw<SocioSucursalRow[]>(
+      Prisma.sql`
+        SELECT DISTINCT
+          r."RA01NumeroCag"
+            AS "cag",
+
+          COALESCE(
+            s."R11Nom",
+            TRIM(r."RA01Sucursal")
+          )
+            AS "sucursalNombre"
+
+        FROM "RA01Credito" r
+
+        INNER JOIN "C01ControlCarga" c
+          ON c."C01Id" =
+             r."RA01ControlId"
+
+        LEFT JOIN "R11Sucursal" s
+          ON s."R11Coop_id" =
+             c."C01CooperativaCodigo"
+
+         AND TRIM(s."R11NumSuc") =
+             TRIM(r."RA01Sucursal")
+
+        WHERE
+          r."RA01ControlId" =
+            ${controlId}
+
+          AND r."RA01NumeroCag" IN (
+            ${Prisma.join(topCags)}
+          )
+
+        ORDER BY
+          r."RA01NumeroCag",
+          "sucursalNombre"
+      `,
+    );
+
+    const sucursalesPorCag = new Map<string, string[]>();
+
+    for (const row of sucursalesSociosRows) {
+      const actuales = sucursalesPorCag.get(row.cag) ?? [];
+
+      actuales.push(row.sucursalNombre);
+
+      sucursalesPorCag.set(row.cag, actuales);
+    }
+
+    const socios = sociosRows.map((row) => ({
+      cag: row.cag,
+
+      nombreSocio: row.nombreSocio,
+
+      sucursales: sucursalesPorCag.get(row.cag) ?? [],
+
+      saldo: this._toNumber(row.saldo),
+
+      numeroPrestamos: Number(row.numeroPrestamos),
+    }));
+
+    /*
+     * Totales correspondientes exclusivamente
+     * a los 20 socios del ranking.
+     */
+    const totalSaldo =
+      socios.reduce(
+        (total, socio) =>
+          total +
+          socio.saldo,
+        0,
+      );
+
+    const totalPrestamos =
+      socios.reduce(
+        (total, socio) =>
+          total +
+          socio.numeroPrestamos,
+        0,
+      );
+
+    /*
+     * -------------------------------------------------
+     * DISTRIBUCIÓN POR SUCURSAL
+     * -------------------------------------------------
+     *
+     * Para este KPI la métrica es
+     * RA01TotalCartera.
+     */
+    type DistribucionRow = {
+      sucursalNumero: string;
+      sucursalNombre: string | null;
+
+      monto:
+        | string
+        | number
+        | bigint
+        | Prisma.Decimal
+        | null;
+    };
+
+    const distribucionRows =
+      await this.$queryRaw<DistribucionRow[]>(
+        Prisma.sql`
+          SELECT
+            TRIM(r."RA01Sucursal")
+              AS "sucursalNumero",
+
+            s."R11Nom"
+              AS "sucursalNombre",
+
+            COALESCE(
+              SUM(r."RA01TotalCartera"),
+              0
+            )::numeric
+            AS "monto"
+
+          FROM "RA01Credito" r
+
+                 INNER JOIN "C01ControlCarga" c
+                            ON c."C01Id" =
+                               r."RA01ControlId"
+
+                 LEFT JOIN "R11Sucursal" s
+                           ON s."R11Coop_id" =
+                              c."C01CooperativaCodigo"
+
+                             AND TRIM(s."R11NumSuc") =
+                                 TRIM(r."RA01Sucursal")
+
+          WHERE
+            r."RA01ControlId" =
+            ${controlId}
+
+            AND r."RA01NumeroCag" IN (
+            ${Prisma.join(topCags)}
+            )
+
+          GROUP BY
+            TRIM(r."RA01Sucursal"),
+            s."R11Nom"
+
+          ORDER BY
+            SUM(r."RA01TotalCartera") DESC,
+            TRIM(r."RA01Sucursal") ASC
+        `,
+      );
+
+    const distribucionSucursales =
+      distribucionRows.map(
+        (row) => {
+          const monto =
+            this._toNumber(
+              row.monto,
+            );
+
+          return {
+            sucursalNumero:
+            row.sucursalNumero,
+
+            sucursalNombre:
+              row.sucursalNombre ??
+              row.sucursalNumero,
+
+            monto,
+
+            porcentaje:
+              totalSaldo > 0
+                ? (
+                monto /
+                totalSaldo
+              ) * 100
+                : 0,
+          };
+        },
+      );
+
+    return {
+      periodoMes,
+      periodoAnio,
+      socios,
+      distribucionSucursales,
+      totalSaldo,
+      totalPrestamos,
+    };
+  }
+
+  public async getSocioDetalle(
+    input: CreditoSocioDetalleInput,
+  ): Promise<CreditoSocioDetalleOutput> {
+    const controlId = await this._getUltimoControlCredito(
+      input.cooperativaId,
+    );
+
+    if (!controlId) {
+      return {
+        cag: input.cag,
+        totalDesembolso: 0,
+        totalSaldo: 0,
+        creditos: [],
+      };
+    }
 
     type CreditoRow = {
       credito: string;
@@ -6745,9 +6701,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
     };
 
     const creditosRows =
-      await this.$queryRaw<
-        CreditoRow[]
-      >(
+      await this.$queryRaw<CreditoRow[]>(
         Prisma.sql`
         SELECT
           r."RA01NumeroDeCredito"
@@ -6810,7 +6764,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
             ${controlId}
 
           AND r."RA01NumeroCag" =
-            ${cagSeleccionado}
+            ${input.cag}
 
         ORDER BY
           r."RA01TotalCartera" DESC,
@@ -6818,191 +6772,64 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
       `,
       );
 
-    const creditos =
-      creditosRows.map(
-        (row) => ({
-          credito:
-          row.credito,
+    const creditos = creditosRows.map(
+      (row) => ({
+        credito: row.credito,
 
-          desembolso:
-            this._toNumber(
-              row.desembolso,
-            ),
+        desembolso:
+          this._toNumber(row.desembolso),
 
-          sucursalNumero:
+        sucursalNumero:
+        row.sucursalNumero,
+
+        sucursalNombre:
+          row.sucursalNombre ??
           row.sucursalNumero,
 
-          sucursalNombre:
-            row.sucursalNombre ??
-            row.sucursalNumero,
+        tipo: row.tipo,
 
-          tipo:
-          row.tipo,
+        formaPago: row.formaPago,
 
-          formaPago:
-          row.formaPago,
+        producto: row.producto,
 
-          producto:
-          row.producto,
+        fechaEntrega: row.fechaEntrega,
 
-          fechaEntrega:
-          row.fechaEntrega,
+        fechaVencimiento:
+        row.fechaVencimiento,
 
-          fechaVencimiento:
-          row.fechaVencimiento,
+        capitalVigente:
+          this._toNumber(row.capitalVigente),
 
-          capitalVigente:
-            this._toNumber(
-              row.capitalVigente,
-            ),
+        capitalVencido:
+          this._toNumber(row.capitalVencido),
 
-          capitalVencido:
-            this._toNumber(
-              row.capitalVencido,
-            ),
+        saldo:
+          this._toNumber(row.saldo),
 
-          saldo:
-            this._toNumber(
-              row.saldo,
-            ),
+        diasMora: row.diasMora,
 
-          diasMora:
-          row.diasMora,
+        tasa:
+          this._toNumber(row.tasa),
+      }),
+    );
 
-          tasa:
-            this._toNumber(
-              row.tasa,
-            ),
-        }),
-      );
-
-    const totalDesembolsoSeleccionado = creditos.reduce(
-      (total, credito) => total + credito.desembolso,
+    const totalDesembolso = creditos.reduce(
+      (total, credito) =>
+        total + credito.desembolso,
       0,
     );
 
-    const totalSaldoSeleccionado = creditos.reduce(
-      (total, credito) => total + credito.saldo,
+    const totalSaldo = creditos.reduce(
+      (total, credito) =>
+        total + credito.saldo,
       0,
     );
-
-    /*
-     * -------------------------------------------------
-     * DISTRIBUCIÓN POR SUCURSAL
-     * -------------------------------------------------
-     *
-     * IMPORTANTE:
-     *
-     * Aquí también cambia la métrica.
-     *
-     * No usamos RA01CEntregada.
-     * Utilizamos RA01TotalCartera.
-     *
-     * Cada crédito de los Top 20 CAG
-     * aporta su saldo a su propia sucursal.
-     */
-
-    type DistribucionRow = {
-      sucursalNumero: string;
-      sucursalNombre: string | null;
-
-      monto:
-        | string
-        | number
-        | bigint
-        | Prisma.Decimal
-        | null;
-    };
-
-    const distribucionRows =
-      await this.$queryRaw<
-        DistribucionRow[]
-      >(
-        Prisma.sql`
-        SELECT
-          TRIM(r."RA01Sucursal")
-            AS "sucursalNumero",
-
-          s."R11Nom"
-            AS "sucursalNombre",
-
-          COALESCE(
-            SUM(r."RA01TotalCartera"),
-            0
-          )::numeric
-            AS "monto"
-
-        FROM "RA01Credito" r
-
-        INNER JOIN "C01ControlCarga" c
-          ON c."C01Id" =
-             r."RA01ControlId"
-
-        LEFT JOIN "R11Sucursal" s
-          ON s."R11Coop_id" =
-             c."C01CooperativaCodigo"
-
-         AND TRIM(s."R11NumSuc") =
-             TRIM(r."RA01Sucursal")
-
-        WHERE
-          r."RA01ControlId" =
-            ${controlId}
-
-          AND r."RA01NumeroCag" IN (
-            ${Prisma.join(topCags)}
-          )
-
-        GROUP BY
-          TRIM(r."RA01Sucursal"),
-          s."R11Nom"
-
-        ORDER BY
-          SUM(r."RA01TotalCartera") DESC,
-          TRIM(r."RA01Sucursal") ASC
-      `,
-      );
-
-    const distribucionSucursales =
-      distribucionRows.map(
-        (row) => {
-          const monto =
-            this._toNumber(
-              row.monto,
-            );
-
-          return {
-            sucursalNumero:
-            row.sucursalNumero,
-
-            sucursalNombre:
-              row.sucursalNombre ??
-              row.sucursalNumero,
-
-            monto,
-
-            porcentaje:
-              totalSaldo > 0
-                ? (
-                monto /
-                totalSaldo
-              ) * 100
-                : 0,
-          };
-        },
-      );
 
     return {
-      periodoMes,
-      periodoAnio,
-      socios,
-      cagSeleccionado,
-      totalDesembolsoSeleccionado,
-      totalSaldoSeleccionado,
-      creditos,
-      distribucionSucursales,
+      cag: input.cag,
+      totalDesembolso,
       totalSaldo,
-      totalPrestamos,
+      creditos,
     };
   }
 
