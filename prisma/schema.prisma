@@ -101,6 +101,8 @@ model R17Cooperativas {
   categorias       R14Categoria[]
   limitePrudencial R18LimitePrudencial[]
 
+  productosCaptacion R27ProductoCaptacion[]
+
   movimientos R19Movimientos[]
 
   A01MuestraSeleccionCredito A01MuestraSeleccionCredito[]
@@ -556,6 +558,35 @@ model R25EvaluacionResumenFase3 {
   supervisor R12Usuario     @relation("Supervisor", fields: [R25SP_id], references: [R12Id])
 
   @@index([R25Folio])
+}
+
+// CAPTACION
+model R26CategoriaCaptacion {
+  R26Id             String   @id @default(uuid()) @db.Uuid
+  R26Nom            String   @unique
+  R26Activ          Boolean  @default(true)
+  R26Actualizado_en DateTime @updatedAt
+  R26Creada_en      DateTime @default(now())
+
+  productos R27ProductoCaptacion[]
+}
+
+model R27ProductoCaptacion {
+  R27Id             String   @id @default(uuid()) @db.Uuid
+  R27Nom            String
+  R27Cat_id         String   @db.Uuid
+  R27Activ          Boolean  @default(true)
+  R27Coop_id        String   @db.Uuid
+  R27Actualizado_en DateTime @updatedAt
+  R27Creado_en      DateTime @default(now())
+
+  categoria R26CategoriaCaptacion @relation(fields: [R27Cat_id], references: [R26Id])
+
+  cooperativa R17Cooperativas @relation(fields: [R27Coop_id], references: [R17Id], onDelete: Cascade)
+
+  @@unique([R27Coop_id, R27Nom])
+  @@index([R27Coop_id, R27Activ])
+  @@index([R27Cat_id])
 }
 
 // * RADIOGRAFIAS
