@@ -84,6 +84,7 @@ enum RADIO_AREA {
 
 enum OP_META_AREA {
   CREDITO
+  CAPTACION
 }
 
 model R17Cooperativas {
@@ -812,10 +813,10 @@ model RA03Afiliacion {
 
 // ======================================================
 // OPERACIONES - CREDITO
-// CONTROL DE CARGA DE METAS DE COLOCACION
+// CONTROL DE CARGA DE METAS
 // ======================================================
 
-model OP00ControlMetaColocacion {
+model OP00ControlMeta {
   OP00Id                Int          @id @default(autoincrement())
   OP00CooperativaCodigo String       @db.Uuid
   OP00PeriodoAnio       Int
@@ -823,17 +824,21 @@ model OP00ControlMetaColocacion {
   OP00Archivo           String?
   OP00FechaCarga        DateTime     @default(now())
 
-  metas OP01MetaColocacion[]
+  metasColocacion OP01MetaColocacion[]
+  metasCaptacion  OP02MetaCaptacion[]
 
   @@unique([OP00CooperativaCodigo, OP00PeriodoAnio, OP00Area])
   @@index([OP00CooperativaCodigo, OP00PeriodoAnio, OP00Area])
+  // Conservamos físicamente la tabla actual por ahora.
+  @@map("OP00ControlMetaColocacion")
 }
 
 // ======================================================
-// OPERACIONES - CREDITO
-// METAS MENSUALES DE COLOCACION POR SUCURSAL
+// OPERACIONES
+// METAS MENSUALES POR SUCURSAL
 // ======================================================
 
+// METAS DE CREDITO
 model OP01MetaColocacion {
   OP01Id             Int     @id @default(autoincrement())
   OP01ControlId      Int
@@ -841,10 +846,26 @@ model OP01MetaColocacion {
   OP01PeriodoMes     Int
   OP01Meta           Decimal @db.Decimal(18, 2)
 
-  control OP00ControlMetaColocacion @relation(fields: [OP01ControlId], references: [OP00Id], onDelete: Cascade)
+  control OP00ControlMeta @relation(fields: [OP01ControlId], references: [OP00Id], onDelete: Cascade)
 
   @@unique([OP01ControlId, OP01SucursalNumero, OP01PeriodoMes])
   @@index([OP01ControlId, OP01SucursalNumero, OP01PeriodoMes])
+}
+
+// METAS DE CAPTACION
+model OP02MetaCaptacion {
+  OP02Id             Int     @id @default(autoincrement())
+  OP02ControlId      Int
+  OP02SucursalNumero String?
+  OP02PeriodoMes     Int
+  OP02MetaVista      Decimal @db.Decimal(18, 2)
+  OP02MetaPlazo      Decimal @db.Decimal(18, 2)
+  OP02MetaInfantil   Decimal @db.Decimal(18, 2)
+
+  control OP00ControlMeta @relation(fields: [OP02ControlId], references: [OP00Id], onDelete: Cascade)
+
+  @@unique([OP02ControlId, OP02SucursalNumero, OP02PeriodoMes])
+  @@index([OP02ControlId, OP02SucursalNumero, OP02PeriodoMes])
 }
 
 model OP02UsuarioAlias {

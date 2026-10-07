@@ -3,7 +3,7 @@ import {
   MetaColocacionSucursalExcel,
   MetaMesNumero,
 } from '../types/meta-colocacion.types';
-import { normalizeSucursalName } from './meta-sucursal.util';
+import { normalizeSucursalName } from '../../../common/utils/meta-sucursal.util';
 
 const MONTH_HEADERS = [
   'Enero',

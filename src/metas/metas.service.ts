@@ -9,6 +9,10 @@ import { GetDetalleMetaInput } from './dto/inputs/get-detalle-meta.input';
 import { DetalleMetaOutput } from './dto/outputs/detalle-meta.output';
 import { DetalleMetaSucursalOutput } from './dto/outputs/detalle-meta-sucursal.output';
 import { DetalleMetaTotalesOutput } from './dto/outputs/detalle-meta-totales.output';
+import {
+  DetalleMetaCaptacionOutput,
+  DetalleMetaCaptacionSucursalOutput,
+} from './dto/outputs/detalle-meta-captacion.output';
 
 type MetaMontosRow = {
   enero: Prisma.Decimal;
@@ -31,6 +35,69 @@ type DetalleMetaRow = MetaMontosRow & {
   sucursalNombre: string;
 };
 
+type MetaCaptacionMontosRow = {
+  enero: Prisma.Decimal;
+  febrero: Prisma.Decimal;
+  marzo: Prisma.Decimal;
+  abril: Prisma.Decimal;
+  mayo: Prisma.Decimal;
+  junio: Prisma.Decimal;
+  julio: Prisma.Decimal;
+  agosto: Prisma.Decimal;
+  septiembre: Prisma.Decimal;
+  octubre: Prisma.Decimal;
+  noviembre: Prisma.Decimal;
+  diciembre: Prisma.Decimal;
+  total: Prisma.Decimal;
+};
+
+type DetalleMetaCaptacionRawRow = {
+  sucursalNumero: string | null;
+  sucursalNombre: string;
+
+  vistaEnero: Prisma.Decimal;
+  vistaFebrero: Prisma.Decimal;
+  vistaMarzo: Prisma.Decimal;
+  vistaAbril: Prisma.Decimal;
+  vistaMayo: Prisma.Decimal;
+  vistaJunio: Prisma.Decimal;
+  vistaJulio: Prisma.Decimal;
+  vistaAgosto: Prisma.Decimal;
+  vistaSeptiembre: Prisma.Decimal;
+  vistaOctubre: Prisma.Decimal;
+  vistaNoviembre: Prisma.Decimal;
+  vistaDiciembre: Prisma.Decimal;
+  vistaTotal: Prisma.Decimal;
+
+  plazoEnero: Prisma.Decimal;
+  plazoFebrero: Prisma.Decimal;
+  plazoMarzo: Prisma.Decimal;
+  plazoAbril: Prisma.Decimal;
+  plazoMayo: Prisma.Decimal;
+  plazoJunio: Prisma.Decimal;
+  plazoJulio: Prisma.Decimal;
+  plazoAgosto: Prisma.Decimal;
+  plazoSeptiembre: Prisma.Decimal;
+  plazoOctubre: Prisma.Decimal;
+  plazoNoviembre: Prisma.Decimal;
+  plazoDiciembre: Prisma.Decimal;
+  plazoTotal: Prisma.Decimal;
+
+  infantilEnero: Prisma.Decimal;
+  infantilFebrero: Prisma.Decimal;
+  infantilMarzo: Prisma.Decimal;
+  infantilAbril: Prisma.Decimal;
+  infantilMayo: Prisma.Decimal;
+  infantilJunio: Prisma.Decimal;
+  infantilJulio: Prisma.Decimal;
+  infantilAgosto: Prisma.Decimal;
+  infantilSeptiembre: Prisma.Decimal;
+  infantilOctubre: Prisma.Decimal;
+  infantilNoviembre: Prisma.Decimal;
+  infantilDiciembre: Prisma.Decimal;
+  infantilTotal: Prisma.Decimal;
+};
+
 @Injectable()
 export class MetasService extends PrismaClient implements OnModuleInit {
   private readonly _logger = new Logger('MetasService');
@@ -43,7 +110,7 @@ export class MetasService extends PrismaClient implements OnModuleInit {
   public async getControlesMetas(
     input: GetControlesMetasInput,
   ): Promise<ControlMetaOutput[]> {
-    const rows = await this.oP00ControlMetaColocacion.findMany({
+    const rows = await this.oP00ControlMeta.findMany({
       where: {
         ...(input.cooperativaId && {
           OP00CooperativaCodigo: input.cooperativaId,
@@ -71,9 +138,15 @@ export class MetasService extends PrismaClient implements OnModuleInit {
         OP00Archivo: true,
         OP00FechaCarga: true,
 
-        metas: {
+        metasColocacion: {
           select: {
             OP01SucursalNumero: true,
+          },
+        },
+
+        metasCaptacion: {
+          select: {
+            OP02SucursalNumero: true,
           },
         },
       },
@@ -107,33 +180,51 @@ export class MetasService extends PrismaClient implements OnModuleInit {
     );
 
     return rows.map((row) => {
-      const sucursales = new Set(
-        row.metas.map((meta) => meta.OP01SucursalNumero),
-      ).size;
+      const esCredito = row.OP00Area === 'CREDITO';
+
+      const sucursales = esCredito
+        ? new Set(row.metasColocacion.map((meta) => meta.OP01SucursalNumero))
+            .size
+        : new Set(
+            row.metasCaptacion
+              .map((meta) => meta.OP02SucursalNumero)
+              .filter(
+                (sucursalNumero): sucursalNumero is string =>
+                  sucursalNumero !== null,
+              ),
+          ).size;
+
+      const metasRegistradas = esCredito
+        ? row.metasColocacion.length
+        : row.metasCaptacion.length;
 
       return {
         controlId: row.OP00Id,
         cooperativaId: row.OP00CooperativaCodigo,
+
         cooperativaNombre:
           cooperativasMap.get(row.OP00CooperativaCodigo) ??
           'Cooperativa desconocida',
+
         area: row.OP00Area.toUpperCase() as OpMetaAreaEnum,
+
         periodoAnio: row.OP00PeriodoAnio,
+
         archivo: row.OP00Archivo,
 
-        // Convertir Date de Prisma a string antes de salir del microservicio.
         fechaCarga: row.OP00FechaCarga.toISOString(),
 
         sucursales,
-        metasRegistradas: row.metas.length,
+        metasRegistradas,
       };
     });
   }
 
+  // CRÉDITO
   public async getDetalleMeta(
     input: GetDetalleMetaInput,
   ): Promise<DetalleMetaOutput> {
-    const control = await this.oP00ControlMetaColocacion.findUnique({
+    const control = await this.oP00ControlMeta.findUnique({
       where: {
         OP00Id: input.controlId,
       },
@@ -149,6 +240,13 @@ export class MetasService extends PrismaClient implements OnModuleInit {
       throw new RpcException({
         message: 'No se encontró el control de metas solicitado.',
         status: HttpStatus.NOT_FOUND,
+      });
+    }
+
+    if (control.OP00Area !== 'CREDITO') {
+      throw new RpcException({
+        message: 'El detalle solicitado no corresponde a metas de colocación.',
+        status: HttpStatus.BAD_REQUEST,
       });
     }
 
@@ -417,6 +515,165 @@ export class MetasService extends PrismaClient implements OnModuleInit {
       periodoAnio: control.OP00PeriodoAnio,
       filas: mappedFilas,
       totales,
+    };
+  }
+
+  // CAPTACIÓN
+  public async getDetalleMetaCaptacion(
+    input: GetDetalleMetaInput,
+  ): Promise<DetalleMetaCaptacionOutput> {
+    const control = await this.oP00ControlMeta.findUnique({
+      where: {
+        OP00Id: input.controlId,
+      },
+      select: {
+        OP00Id: true,
+        OP00CooperativaCodigo: true,
+        OP00Area: true,
+        OP00PeriodoAnio: true,
+      },
+    });
+
+    if (!control) {
+      throw new RpcException({
+        message: 'No se encontró el control de metas solicitado.',
+        status: HttpStatus.NOT_FOUND,
+      });
+    }
+
+    if (control.OP00Area !== 'CAPTACION') {
+      throw new RpcException({
+        message: 'El detalle solicitado no corresponde a metas de captación.',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
+
+    const [metas, sucursales, cooperativa] = await Promise.all([
+      this.oP02MetaCaptacion.findMany({
+        where: {
+          OP02ControlId: control.OP00Id,
+        },
+        select: {
+          OP02SucursalNumero: true,
+          OP02PeriodoMes: true,
+          OP02MetaVista: true,
+          OP02MetaPlazo: true,
+          OP02MetaInfantil: true,
+        },
+        orderBy: [
+          {
+            OP02SucursalNumero: 'asc',
+          },
+          {
+            OP02PeriodoMes: 'asc',
+          },
+        ],
+      }),
+
+      this.r11Sucursal.findMany({
+        where: {
+          R11Coop_id: control.OP00CooperativaCodigo,
+        },
+        select: {
+          R11NumSuc: true,
+          R11Nom: true,
+        },
+      }),
+
+      this.r17Cooperativas.findUnique({
+        where: {
+          R17Id: control.OP00CooperativaCodigo,
+        },
+        select: {
+          R17Nom: true,
+        },
+      }),
+    ]);
+
+    const sucursalesMap = new Map(
+      sucursales.map((sucursal) => [
+        String(sucursal.R11NumSuc),
+        sucursal.R11Nom,
+      ]),
+    );
+
+    const grupos = new Map<string, typeof metas>();
+
+    for (const meta of metas) {
+      const key = meta.OP02SucursalNumero ?? '__GLOBAL__';
+
+      const grupo = grupos.get(key);
+
+      if (grupo) {
+        grupo.push(meta);
+      } else {
+        grupos.set(key, [meta]);
+      }
+    }
+
+    const filas: DetalleMetaCaptacionSucursalOutput[] = Array.from(
+      grupos.entries(),
+    ).map(([key, metasSucursal]) => {
+      const esGlobal = key === '__GLOBAL__';
+
+      return {
+        sucursalNumero: esGlobal ? null : key,
+
+        sucursalNombre: esGlobal
+          ? 'Global'
+          : (sucursalesMap.get(key) ?? 'Sucursal desconocida'),
+
+        vista: this._buildMontosCaptacion(metasSucursal, 'OP02MetaVista'),
+
+        plazo: this._buildMontosCaptacion(metasSucursal, 'OP02MetaPlazo'),
+
+        infantil: this._buildMontosCaptacion(metasSucursal, 'OP02MetaInfantil'),
+      };
+    });
+
+    return {
+      controlId: control.OP00Id,
+      cooperativaId: control.OP00CooperativaCodigo,
+      cooperativaNombre: cooperativa?.R17Nom ?? 'Cooperativa desconocida',
+      area: control.OP00Area.toUpperCase() as OpMetaAreaEnum,
+      periodoAnio: control.OP00PeriodoAnio,
+      filas,
+    };
+  }
+
+  //   ===============================
+  //   HELPERS
+  //   ===============================
+  private _buildMontosCaptacion(
+    metas: Array<{
+      OP02PeriodoMes: number;
+      OP02MetaVista: Prisma.Decimal;
+      OP02MetaPlazo: Prisma.Decimal;
+      OP02MetaInfantil: Prisma.Decimal;
+    }>,
+    field: 'OP02MetaVista' | 'OP02MetaPlazo' | 'OP02MetaInfantil',
+  ) {
+    const values = new Map(
+      metas.map((meta) => [meta.OP02PeriodoMes, meta[field].toNumber()]),
+    );
+
+    const get = (mes: number) => values.get(mes) ?? 0;
+
+    return {
+      enero: get(1),
+      febrero: get(2),
+      marzo: get(3),
+      abril: get(4),
+      mayo: get(5),
+      junio: get(6),
+      julio: get(7),
+      agosto: get(8),
+      septiembre: get(9),
+      octubre: get(10),
+      noviembre: get(11),
+      diciembre: get(12),
+
+      total: Array.from(values.values()).reduce((sum, value) => sum + value, 0),
     };
   }
 }

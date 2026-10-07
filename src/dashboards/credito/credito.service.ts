@@ -23,7 +23,6 @@ import { CreditoMedicionTrimestralInput } from './dto/inputs/credito-medicion-tr
 import { CreditoMedicionTrimestralOutput } from './dto/outputs/credito-medicion-trimestral.output';
 import { CreditoMedicionTrimestralMesOutput } from './dto/outputs/credito-medicion-trimestral-mes.output';
 import { CreditoFortalezaProductoOutput } from './dto/outputs/credito-fortaleza-producto.output';
-import { CreditoFortalezaGrupoOutput } from './dto/outputs/credito-fortaleza-grupo.output';
 import {
   CreditoFortalezaColocacionInput,
   CreditoFortalezaEnfoque,
@@ -239,7 +238,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
   ): Promise<CreditoMedicionAnualOutput> {
     try {
       // Buscar el control de metas de crédito para la cooperativa y año.
-      const controlMetas = await this.oP00ControlMetaColocacion.findUnique({
+      const controlMetas = await this.oP00ControlMeta.findUnique({
         where: {
           OP00CooperativaCodigo_OP00PeriodoAnio_OP00Area: {
             OP00CooperativaCodigo: input.cooperativaId,
@@ -463,7 +462,7 @@ export class CreditoService extends PrismaClient implements OnModuleInit {
           },
         }),
 
-        this.oP00ControlMetaColocacion.findUnique({
+        this.oP00ControlMeta.findUnique({
           where: {
             OP00CooperativaCodigo_OP00PeriodoAnio_OP00Area: {
               OP00CooperativaCodigo: input.cooperativaId,

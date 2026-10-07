@@ -18,4 +18,13 @@ export class MetasHandler {
   public handleGetDetalleMeta(@Payload() input: GetDetalleMetaInput) {
     return this._service.getDetalleMeta(input);
   }
+
+  @MessagePattern( 'operaciones.metas.getDetalleCaptacion' )
+  public handleGetDetalleMetaCaptacion(
+    @Payload() input: GetDetalleMetaInput,
+  ) {
+    return this._service.getDetalleMetaCaptacion(
+      input,
+    );
+  }
 }

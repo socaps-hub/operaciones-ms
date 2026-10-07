@@ -7,7 +7,7 @@ import {
   MetaColocacionSucursalExcel,
   MetaMesNumero,
 } from './types/meta-colocacion.types';
-import { normalizeSucursalName } from './utils/meta-sucursal.util';
+import { normalizeSucursalName } from '../../common/utils/meta-sucursal.util';
 import { UploadMetasColocacionInput } from './dto/inputs/upload-metas-colocacion.input';
 import { ExcelService } from '../../../common/excel/services/excel.service';
 import { MetasExcelUtil } from './utils/metas-excel.util';
@@ -55,7 +55,7 @@ export class MetasService extends PrismaClient implements OnModuleInit {
 
       // Guardar toda la carga de forma atómica.
       const result = await this.$transaction(async (tx) => {
-        const controlExistente = await tx.oP00ControlMetaColocacion.findUnique({
+        const controlExistente = await tx.oP00ControlMeta.findUnique({
           where: {
             OP00CooperativaCodigo_OP00PeriodoAnio_OP00Area: {
               OP00CooperativaCodigo: input.cooperativaId,
@@ -74,7 +74,7 @@ export class MetasService extends PrismaClient implements OnModuleInit {
           controlId = controlExistente.OP00Id;
 
           // Actualizar metadata de la carga.
-          await tx.oP00ControlMetaColocacion.update({
+          await tx.oP00ControlMeta.update({
             where: {
               OP00Id: controlId,
             },
@@ -91,7 +91,7 @@ export class MetasService extends PrismaClient implements OnModuleInit {
             },
           });
         } else {
-          const control = await tx.oP00ControlMetaColocacion.create({
+          const control = await tx.oP00ControlMeta.create({
             data: {
               OP00CooperativaCodigo: input.cooperativaId,
               OP00PeriodoAnio: input.periodoAnio,
