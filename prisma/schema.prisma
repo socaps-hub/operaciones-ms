@@ -577,6 +577,7 @@ model R27ProductoCaptacion {
   R27Nom            String
   R27Cat_id         String   @db.Uuid
   R27Activ          Boolean  @default(true)
+  R27EsInfantil     Boolean  @default(false)
   R27Coop_id        String   @db.Uuid
   R27Actualizado_en DateTime @updatedAt
   R27Creado_en      DateTime @default(now())
