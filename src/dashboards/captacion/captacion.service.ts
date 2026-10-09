@@ -22,6 +22,9 @@ import {
   CaptacionProductosAnalisisTipo,
   CaptacionTablaSaldoRow,
   CaptacionTotalRow,
+  CaptacionPresupuestoMetaRow,
+  CaptacionPresupuestoProductoConfig,
+  CaptacionPresupuestoRealRow,
 } from './types';
 import { CaptacionBaseInput } from './dto/inputs/captacion-base.input';
 import { CaptacionPosicionOutput } from './dto/outputs/saldos/captacion-posicion.output';
@@ -42,6 +45,11 @@ import {
   CaptacionProductoComportamientoMesOutput,
   CaptacionProductoDistribucionOutput,
 } from './dto/outputs/saldos/captacion-productos-analisis.output';
+import { CaptacionCumplimientoPresupuestoInput } from './dto/inputs/captacion-cumplimiento-presupuesto.input';
+import {
+  CaptacionCumplimientoPresupuestoOutput
+} from './dto/outputs/cumplimiento-metas/captacion-cumplimiento-presupuesto.output';
+import { CaptacionPresupuestoAnalisisEnum } from './enums/captacion-cumplimiento-presupuesto-analisis.enum';
 
 @Injectable()
 export class CaptacionService extends PrismaClient implements OnModuleInit {
@@ -68,6 +76,9 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
     this._logger.log('Database connected');
   }
 
+  // =====================================================
+  // SALDOS
+  // =====================================================
   public async getTablaSaldos(
     input: CaptacionPeriodoInput,
   ): Promise<CaptacionTablaSaldosOutput> {
@@ -309,6 +320,37 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
     input: CaptacionProductoInput,
   ): Promise<CaptacionProductosAnalisisOutput> {
     return this._getAnalisisProductos(input, 'PLAZO');
+  }
+
+  // =====================================================
+  // CUMPLIMIENTO - METAS
+  // =====================================================
+  public async getCumplimientoPresupuesto(
+    input: CaptacionCumplimientoPresupuestoInput,
+  ): Promise<CaptacionCumplimientoPresupuestoOutput> {
+    try {
+      const oficina = input.oficina?.trim() || undefined;
+
+      await this._getOficina(input.cooperativaId, oficina);
+
+      const [metas, productos] = await Promise.all([
+        this._getPresupuestoMetas(input, oficina),
+        this._getPresupuestoProductos(input.cooperativaId, input.analisis),
+      ]);
+
+      const reales = await this._getPresupuestoReales(
+        input,
+        oficina,
+        productos,
+      );
+
+      return this._buildCumplimientoPresupuesto(input, metas, reales);
+    } catch (error: unknown) {
+      this._handleRpcError(
+        error,
+        'Error al obtener el cumplimiento al presupuesto de captación',
+      );
+    }
   }
 
   // ====================================
@@ -764,7 +806,7 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
 
         saldo,
 
-        participacion: this._calculateParticipation(saldo, total),
+        participacion: this._calculatePercentage(saldo, total),
 
         numeroCuentas: this._toNumber(row.numeroCuentas),
       };
@@ -793,7 +835,7 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
 
         saldo,
 
-        participacion: this._calculateParticipation(saldo, total),
+        participacion: this._calculatePercentage(saldo, total),
       };
     });
   }
@@ -830,14 +872,11 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
     return {
       nombre: oficina.nombre,
       saldo: sucursal.saldo,
-      porcentaje: this._calculateParticipation(
-        sucursal.saldo,
-        totalCooperativa,
-      ),
+      porcentaje: this._calculatePercentage(sucursal.saldo, totalCooperativa),
     };
   }
 
-  private _calculateParticipation(value: number, total: number): number {
+  private _calculatePercentage(value: number, total: number): number {
     if (total === 0) {
       return 0;
     }
@@ -982,7 +1021,7 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
 
         saldo,
 
-        participacion: this._calculateParticipation(saldo, total),
+        participacion: this._calculatePercentage(saldo, total),
 
         numeroCuentas: this._toNumber(row.numeroCuentas),
       };
@@ -1346,7 +1385,7 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
 
           saldo,
 
-          participacion: this._calculateParticipation(saldo, saldoTotal),
+          participacion: this._calculatePercentage(saldo, saldoTotal),
 
           numeroCuentas: this._toNumber(row.numeroCuentas),
         };
@@ -1371,7 +1410,7 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
         saldoTotal,
         numeroCuentas,
 
-        participacionCaptacion: this._calculateParticipation(
+        participacionCaptacion: this._calculatePercentage(
           saldoTotal,
           saldoCaptacion,
         ),
@@ -1421,5 +1460,360 @@ export class CaptacionService extends PrismaClient implements OnModuleInit {
         disponible,
       };
     });
+  }
+
+  private async _getPresupuestoMetas(
+    input: CaptacionCumplimientoPresupuestoInput,
+    oficina?: string,
+  ): Promise<CaptacionPresupuestoMetaRow[]> {
+    const metaExpression = this._getPresupuestoMetaExpression(input.analisis);
+
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        m."OP02SucursalNumero" = ${oficina}
+      `
+      : Prisma.sql`
+        m."OP02SucursalNumero" IS NULL
+      `;
+
+    return this.$queryRaw<CaptacionPresupuestoMetaRow[]>(
+      Prisma.sql`
+      SELECT
+        m."OP02PeriodoMes" AS "mes",
+
+        (
+          ${metaExpression}
+        ) AS "meta"
+
+      FROM "OP02MetaCaptacion" m
+
+      INNER JOIN "OP00ControlMetaColocacion" c
+        ON c."OP00Id" = m."OP02ControlId"
+
+      WHERE
+        c."OP00CooperativaCodigo" =
+          ${input.cooperativaId}::uuid
+
+        AND c."OP00PeriodoAnio" =
+          ${input.periodoAnio}
+
+        AND c."OP00Area" =
+          'CAPTACION'::"OP_META_AREA"
+
+        AND ${oficinaWhere}
+
+      ORDER BY
+        m."OP02PeriodoMes"
+    `,
+    );
+  }
+
+  private _getPresupuestoMetaExpression(
+    analisis: CaptacionPresupuestoAnalisisEnum,
+  ): Prisma.Sql {
+    switch (analisis) {
+      case CaptacionPresupuestoAnalisisEnum.CAPTACION_TOTAL:
+        return Prisma.sql`
+        m."OP02MetaVista"
+        + m."OP02MetaPlazo"
+        + m."OP02MetaInfantil"
+      `;
+
+      case CaptacionPresupuestoAnalisisEnum.CUENTAS_PLAZO:
+        return Prisma.sql`
+        m."OP02MetaPlazo"
+      `;
+
+      case CaptacionPresupuestoAnalisisEnum.CUENTAS_VISTA:
+        return Prisma.sql`
+        m."OP02MetaVista"
+      `;
+
+      case CaptacionPresupuestoAnalisisEnum.AHORRADOR_MENOR:
+        return Prisma.sql`
+        m."OP02MetaInfantil"
+      `;
+    }
+  }
+
+  private async _getPresupuestoProductos(
+    cooperativaId: string,
+    analisis: CaptacionPresupuestoAnalisisEnum,
+  ): Promise<CaptacionPresupuestoProductoConfig> {
+    if (analisis === CaptacionPresupuestoAnalisisEnum.CAPTACION_TOTAL) {
+      return {
+        vista: [],
+        plazo: [],
+        infantil: [],
+      };
+    }
+
+    const productos = await this.r27ProductoCaptacion.findMany({
+      where: {
+        R27Coop_id: cooperativaId,
+        R27Activ: true,
+      },
+
+      select: {
+        R27Nom: true,
+        R27EsInfantil: true,
+
+        categoria: {
+          select: {
+            R26Nom: true,
+          },
+        },
+      },
+    });
+
+    const config: CaptacionPresupuestoProductoConfig = {
+      vista: [],
+      plazo: [],
+      infantil: [],
+    };
+
+    for (const producto of productos) {
+      const nombre = producto.R27Nom.trim();
+
+      const categoria =
+        producto.categoria.R26Nom.trim().toLocaleLowerCase('es-MX');
+
+      if (categoria === 'plazo fijo') {
+        config.plazo.push(nombre);
+        continue;
+      }
+
+      if (categoria !== 'a la vista') {
+        continue;
+      }
+
+      // Todos los productos A la vista, incluidos infantiles.
+      config.vista.push(nombre);
+
+      // Infantil es un subconjunto de Vista.
+      if (producto.R27EsInfantil) {
+        config.infantil.push(nombre);
+      }
+    }
+
+    return config;
+  }
+
+  private _getPresupuestoProductoWhere(
+    analisis: CaptacionPresupuestoAnalisisEnum,
+    productos: CaptacionPresupuestoProductoConfig,
+  ): Prisma.Sql {
+    switch (analisis) {
+      case CaptacionPresupuestoAnalisisEnum.CAPTACION_TOTAL:
+        return Prisma.empty;
+
+      case CaptacionPresupuestoAnalisisEnum.CUENTAS_PLAZO:
+        return this._buildProductoInWhere(productos.plazo);
+
+      case CaptacionPresupuestoAnalisisEnum.CUENTAS_VISTA:
+        return this._buildProductoInWhere(productos.vista);
+
+      case CaptacionPresupuestoAnalisisEnum.AHORRADOR_MENOR:
+        return this._buildProductoInWhere(productos.infantil);
+    }
+  }
+
+  private _buildProductoInWhere(productos: string[]): Prisma.Sql {
+    if (productos.length === 0) {
+      return Prisma.sql`
+        AND FALSE
+      `;
+    }
+
+    return Prisma.sql`
+      AND LOWER(TRIM(r."RA02Producto"))
+        IN (
+          ${Prisma.join(
+            productos.map((producto) =>
+              producto.trim().toLocaleLowerCase('es-MX'),
+            ),
+          )}
+        )
+    `;
+  }
+
+  private async _getPresupuestoReales(
+    input: CaptacionCumplimientoPresupuestoInput,
+    oficina: string | undefined,
+    productos: CaptacionPresupuestoProductoConfig,
+  ): Promise<CaptacionPresupuestoRealRow[]> {
+    const oficinaWhere = oficina
+      ? Prisma.sql`
+        AND r."RA02Sucursal" = ${oficina}
+      `
+      : Prisma.empty;
+
+    const productoWhere = this._getPresupuestoProductoWhere(
+      input.analisis,
+      productos,
+    );
+
+    return this.$queryRaw<CaptacionPresupuestoRealRow[]>(
+      Prisma.sql`
+        SELECT
+          c."C01PeriodoAnio" AS "anio",
+          c."C01PeriodoMes" AS "mes",
+
+          COALESCE(
+            SUM(r."RA02SaldoTotal"),
+            0
+          ) AS "saldo"
+
+        FROM "C01ControlCarga" c
+
+               LEFT JOIN "RA02Captacion" r
+                         ON r."RA02ControlId" = c."C01Id"
+
+          ${oficinaWhere}
+          ${productoWhere}
+
+        WHERE
+          c."C01CooperativaCodigo" =
+          ${input.cooperativaId}::uuid
+
+          AND c."C01Area" =
+          'CAPTACION'::"RADIO_AREA"
+
+          AND (
+            (
+          c."C01PeriodoAnio" =
+          ${input.periodoAnio - 1}
+
+          AND c."C01PeriodoMes" = 12
+          )
+           OR
+            (
+          c."C01PeriodoAnio" =
+          ${input.periodoAnio}
+
+          AND c."C01PeriodoMes"
+          BETWEEN 1 AND ${input.periodoMes}
+          )
+          )
+
+        GROUP BY
+          c."C01PeriodoAnio",
+          c."C01PeriodoMes"
+
+        ORDER BY
+          c."C01PeriodoAnio",
+          c."C01PeriodoMes"
+      `,
+    );
+  }
+
+  private _buildCumplimientoPresupuesto(
+    input: CaptacionCumplimientoPresupuestoInput,
+    metas: CaptacionPresupuestoMetaRow[],
+    reales: CaptacionPresupuestoRealRow[],
+  ): CaptacionCumplimientoPresupuestoOutput {
+    const metasPorMes = new Map<number, number>(
+      metas.map((row) => [row.mes, this._toNumber(row.meta)]),
+    );
+
+    const saldosPorPeriodo = new Map<string, number>(
+      reales.map((row) => [
+        this._getPeriodoKey(row.anio, row.mes),
+        this._toNumber(row.saldo),
+      ]),
+    );
+
+    const metaAnual = Array.from(
+      { length: 12 },
+      (_, index) => metasPorMes.get(index + 1) ?? 0,
+    ).reduce((total, meta) => total + meta, 0);
+
+    const cifraEsperada = Array.from(
+      { length: input.periodoMes },
+      (_, index) => metasPorMes.get(index + 1) ?? 0,
+    ).reduce((total, meta) => total + meta, 0);
+
+    const variaciones = new Map<number, number | null>();
+
+    for (let mes = 1; mes <= input.periodoMes; mes++) {
+      const periodoActual = this._getPeriodoKey(input.periodoAnio, mes);
+
+      const anterior = this._getPeriodoAnterior(input.periodoAnio, mes);
+
+      const periodoPrevio = this._getPeriodoKey(anterior.anio, anterior.mes);
+
+      const saldoActual = saldosPorPeriodo.get(periodoActual);
+      const saldoAnterior = saldosPorPeriodo.get(periodoPrevio);
+
+      if (saldoActual === undefined || saldoAnterior === undefined) {
+        variaciones.set(mes, null);
+        continue;
+      }
+
+      variaciones.set(mes, saldoActual - saldoAnterior);
+    }
+
+    const variacionesAcumuladas = Array.from(
+      { length: input.periodoMes },
+      (_, index) => variaciones.get(index + 1) ?? null,
+    );
+
+    const acumuladoDisponible = variacionesAcumuladas.every(
+      (variacion) => variacion !== null,
+    );
+
+    const llevan = acumuladoDisponible
+      ? variacionesAcumuladas.reduce<number>(
+          (total, variacion) => total + (variacion ?? 0),
+          0,
+        )
+      : null;
+
+    const logroMes = variaciones.get(input.periodoMes) ?? null;
+
+    const metaMes = metasPorMes.get(input.periodoMes) ?? 0;
+
+    const porcentaje = (valor: number, base: number): number | null =>
+      base === 0 ? null : (valor / base) * 100;
+
+    return {
+      resumen: {
+        metaAnual,
+        cifraEsperada,
+
+        avanceEsperado: porcentaje(cifraEsperada, metaAnual),
+
+        llevan,
+
+        cumplimientoEsperado:
+          llevan === null ? null : porcentaje(llevan, cifraEsperada),
+
+        cumplimientoMetaAnual:
+          llevan === null ? null : porcentaje(llevan, metaAnual),
+
+        diferenciaEsperado: llevan === null ? null : llevan - cifraEsperada,
+      },
+
+      mensual: {
+        meta: metaMes,
+        logro: logroMes,
+
+        cumplimiento: logroMes === null ? null : porcentaje(logroMes, metaMes),
+
+        diferencia: logroMes === null ? null : logroMes - metaMes,
+      },
+
+      comportamiento: Array.from({ length: 12 }, (_, index) => {
+        const mes = index + 1;
+
+        return {
+          mes,
+          meta: metasPorMes.get(mes) ?? 0,
+
+          logro:
+            mes <= input.periodoMes ? (variaciones.get(mes) ?? null) : null,
+        };
+      }),
+    };
   }
 }

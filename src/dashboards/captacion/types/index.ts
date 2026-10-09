@@ -74,3 +74,20 @@ export type CaptacionProductosAnalisisConfig = {
   clasificaciones: readonly string[];
   categoriaCatalogo: string;
 };
+
+export type CaptacionPresupuestoMetaRow = {
+  mes: number;
+  meta: Prisma.Decimal | number | string;
+};
+
+export type CaptacionPresupuestoRealRow = {
+  anio: number;
+  mes: number;
+  saldo: Prisma.Decimal | number | string;
+};
+
+export type CaptacionPresupuestoProductoConfig = {
+  vista: string[];
+  plazo: string[];
+  infantil: string[];
+};
