@@ -198,6 +198,85 @@ export class ExcelService {
     }
   }
 
+  async readExcelSheetsAsRowsFromS3(
+    key: string,
+    sheetNames: string[],
+  ): Promise<Record<string, unknown[][]>> {
+    this.logger.log(
+      `Descargando Excel desde S3: ${key}`,
+    );
+
+    if (!sheetNames.length) {
+      throw new Error(
+        'Debe especificarse al menos una hoja de Excel.',
+      );
+    }
+
+    const response = await this.s3.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+
+    if (!response.Body) {
+      throw new Error(
+        'El archivo descargado desde S3 no contiene datos.',
+      );
+    }
+
+    const chunks: Buffer[] = [];
+
+    for await (const chunk of response.Body as Readable) {
+      chunks.push(
+        Buffer.isBuffer(chunk)
+          ? chunk
+          : Buffer.from(chunk),
+      );
+    }
+
+    const workbook = XLSX.read(
+      Buffer.concat(chunks),
+      {
+        type: 'buffer',
+        cellDates: true,
+      },
+    );
+
+    const result: Record<string, unknown[][]> = {};
+
+    for (const sheetName of sheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+
+      if (!sheet) {
+        throw new Error(
+          `No se encontró la hoja "${sheetName}". ` +
+          `Hojas disponibles: ${workbook.SheetNames.join(', ')}.`,
+        );
+      }
+
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(
+        sheet,
+        {
+          header: 1,
+          defval: '',
+          blankrows: false,
+          raw: true,
+        },
+      );
+
+      if (!rows.length) {
+        throw new Error(
+          `La hoja "${sheetName}" está vacía.`,
+        );
+      }
+
+      result[sheetName] = rows;
+    }
+
+    return result;
+  }
+
   /**
    * 📊 Construye un archivo Excel (Buffer) a partir de un arreglo de objetos
    */

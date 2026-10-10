@@ -27,4 +27,11 @@ export class MetasHandler {
       input,
     );
   }
+
+  @MessagePattern('operaciones.metas.getDetalleAfiliacion')
+  public handleGetDetalleMetaAfiliacion(
+    @Payload() input: GetDetalleMetaInput,
+  ) {
+    return this._service.getDetalleMetaAfiliacion(input);
+  }
 }

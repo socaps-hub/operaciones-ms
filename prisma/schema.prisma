@@ -85,6 +85,7 @@ enum RADIO_AREA {
 enum OP_META_AREA {
   CREDITO
   CAPTACION
+  AFILIACION
 }
 
 model R17Cooperativas {
@@ -825,8 +826,11 @@ model OP00ControlMeta {
   OP00Archivo           String?
   OP00FechaCarga        DateTime     @default(now())
 
-  metasColocacion OP01MetaColocacion[]
-  metasCaptacion  OP02MetaCaptacion[]
+  metasColocacion     OP01MetaColocacion[]
+  metasCaptacion      OP02MetaCaptacion[]
+  // AFILIACION
+  metasIntegral       OP04MetaIntegral[]
+  metasAhorradorMenor OP05MetaAhorradorMenor[]
 
   @@unique([OP00CooperativaCodigo, OP00PeriodoAnio, OP00Area])
   @@index([OP00CooperativaCodigo, OP00PeriodoAnio, OP00Area])
@@ -867,6 +871,34 @@ model OP02MetaCaptacion {
 
   @@unique([OP02ControlId, OP02SucursalNumero, OP02PeriodoMes])
   @@index([OP02ControlId, OP02SucursalNumero, OP02PeriodoMes])
+}
+
+// METAS DE AFILIACIÓN - INTEGRAL
+model OP04MetaIntegral {
+  OP04Id             Int    @id @default(autoincrement())
+  OP04ControlId      Int
+  OP04SucursalNumero String
+  OP04PeriodoMes     Int
+  OP04Meta           Int
+
+  control OP00ControlMeta @relation(fields: [OP04ControlId], references: [OP00Id], onDelete: Cascade)
+
+  @@unique([OP04ControlId, OP04SucursalNumero, OP04PeriodoMes])
+  @@index([OP04ControlId, OP04SucursalNumero, OP04PeriodoMes])
+}
+
+// METAS DE AFILIACIÓN - AHORRADOR MENOR
+model OP05MetaAhorradorMenor {
+  OP05Id             Int    @id @default(autoincrement())
+  OP05ControlId      Int
+  OP05SucursalNumero String
+  OP05PeriodoMes     Int
+  OP05Meta           Int
+
+  control OP00ControlMeta @relation(fields: [OP05ControlId], references: [OP00Id], onDelete: Cascade)
+
+  @@unique([OP05ControlId, OP05SucursalNumero, OP05PeriodoMes])
+  @@index([OP05ControlId, OP05SucursalNumero, OP05PeriodoMes])
 }
 
 model OP02UsuarioAlias {
